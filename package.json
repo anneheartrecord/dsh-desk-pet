@@ -1,0 +1,42 @@
+{
+  "name": "dsh-desk-pet",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Always-on-top DeepSeek Harness desktop pet. Default whale, four skins, four silent states. Not an in-page widget.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anneheartrecord/dsh-desk-pet.git"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "desktop-pet"
+  ],
+  "main": "./plugin/index.mjs",
+  "exports": {
+    ".": "./plugin/index.mjs",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin",
+    "plugin",
+    "src",
+    "cordis.patch.yml",
+    "README.md",
+    "README_EN.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "start": "bin/dsh-desk-pet",
+    "test": "/usr/bin/python3 -m unittest discover -s tests -v"
+  }
+}

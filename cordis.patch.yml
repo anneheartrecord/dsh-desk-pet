@@ -1,0 +1,4 @@
+# DSH bundle layer: mount the host plugin that launches the desktop pet.
+- insert:
+    - id: dsh-desk-pet
+      name: dsh-desk-pet
