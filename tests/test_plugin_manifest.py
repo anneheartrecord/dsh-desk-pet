@@ -27,5 +27,7 @@ class PluginManifestTests(unittest.TestCase):
         plugin = (ROOT / "plugin" / "index.mjs").read_text(encoding="utf-8")
         self.assertIn("export function apply", plugin)
         self.assertIn("export const name = 'dsh-desk-pet'", plugin)
-        self.assertIn("LAUNCHER", plugin)
+        self.assertIn("tapIndex", plugin)
+        self.assertTrue((ROOT / "plugin" / "overlay.js").is_file())
+        self.assertIn("dsh-desk-pet-root", (ROOT / "plugin" / "overlay.js").read_text(encoding="utf-8"))
         self.assertIn("dsh-plugin", pkg["keywords"])

@@ -52,14 +52,13 @@ class DeskPetApp:
         # Titled window so it shows up in Mission Control. Bottom-right of
         # the screen that Tk thinks is primary — not +80+80 (easy to lose
         # on a multi-monitor / retina Mac).
-        root.update_idletasks()
-        sw = int(root.winfo_screenwidth())
-        sh = int(root.winfo_screenheight())
-        x = max(24, sw - CANVAS_W - 48)
-        y = max(24, sh - CANVAS_H - 80)
-        root.geometry(f"{CANVAS_W}x{CANVAS_H}+{x}+{y}")
+        # Pin to the primary display origin. Do NOT use winfo_screenwidth():
+        # on a multi-monitor Mac that is the virtual desktop union, and
+        # bottom-right lands off every visible screen.
+        root.geometry(f"{CANVAS_W}x{CANVAS_H}+80+120")
         root.attributes("-topmost", True)
         root.lift()
+        root.after(200, lambda: (root.lift(), root.attributes("-topmost", True)))
         try:
             root.configure(bg="#f4efe6")
         except tk.TclError:
