@@ -4,60 +4,58 @@
 [![Language](https://img.shields.io/badge/language-Python-3776AB.svg)](src/dsh_desk_pet)
 [![dsh-plugin](https://img.shields.io/badge/topic-dsh--plugin-111111.svg)](https://github.com/topics/dsh-plugin)
 
-置顶桌面宠物。跟着本地 DeepSeek Harness 的活动在四种状态间切换：空闲、干活、等你、报错。默认鲸鱼，自带四套皮肤。**不是网页内嵌插件**，装进 DSH 后会在系统桌面弹出一只可拖的宠物，盖在浏览器上即可。
+置顶桌面宠物。默认鲸鱼，四套皮肤，四种状态。不是网页里的挂件，是盖在 DSH 上的系统窗口。
 
 [English](README_EN.md)
 
-## 装进 DSH 插件生态
+## 安装
 
-仓库带 `dsh.bundle` + `cordis.patch.yml`，可被 `dsh plugin add` 发现和安装。GitHub topic：`dsh-plugin`。
-
-```bash
-dsh plugin --profile web add "github:anneheartrecord/dsh-desk-pet#main"
-# 或本地：
-dsh plugin --profile web add /path/to/dsh-desk-pet
-```
-
-然后重启 Web：
+已有 DSH。一条命令：
 
 ```bash
-dsh --profile web web
+dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
 ```
 
-DSH 启动时 Cordis 会加载本包的 `plugin/index.mjs`，由它拉起桌面宠物；卸载插件时进程一起关掉。
+macOS 需要系统自带的 `/usr/bin/python3`（带 Tk）。
 
-只想单独开宠物、不经过 DSH：
+## 启动
 
 ```bash
-chmod +x bin/dsh-desk-pet
-./bin/dsh-desk-pet
+dsh web
 ```
 
-需要 macOS 自带的 `/usr/bin/python3`（带 Tk）。Homebrew 的 Python 3.14 没有 `_tkinter`。窗口无边框、始终置顶。Esc 退出。底部四个圆点换皮肤。
+DSH 起来后，宠物自己弹出。拖到浏览器上的 DSH 即可。
+
+不要 DSH、只开宠物：克隆后执行 `./bin/dsh-desk-pet`。
+
+## 使用
+
+- 拖：按住窗口任意处。
+- 换肤：点底部四个圆点（鲸 / 线核 / 鹦鹉螺 / 水母）。换肤不改状态。
+- 状态：空闲、干活、等你、报错。跟着本地 DSH 自动变，不用管。
+
+## 关闭
+
+- 这只宠物：窗口上按 `Esc`。
+- 连 DSH 一起关：停掉 `dsh web`，插件拉起的宠物一起没。
+- 卸掉插件：
+
+```bash
+dsh plugin --profile web remove dsh-desk-pet
+```
+
+然后重新 `dsh web`。
 
 ## 皮肤
 
-| id | 名称 |
+| 圆点 | id |
 | --- | --- |
-| `whale` | 鲸（默认） |
-| `threadcore` | 线核 |
-| `nautilus` | 鹦鹉螺 |
-| `jellyfish` | 水母 |
+| 蓝 | `whale`（默认） |
+| 橙 | `threadcore` |
+| 棕 | `nautilus` |
+| 紫 | `jellyfish` |
 
-换皮肤不会改当前状态。
-
-## 状态从哪来
-
-`src/dsh_desk_pet/mapper.py` 把 `AgentActivity` 映射到四态。桌面端通过 `observer.py` 看：
-
-1. 环境变量 `DSH_PET_ACTIVITY`
-2. `~/.dsh/pet-activity.json`（或 `$DSH_HOME`）
-3. `~/.dsh/sessions` 里能读的 json/jsonl 尾事件
-4. 是否有 DSH 进程、会话文件是否刚写过
-
-没有 DSH 时保持空闲。测试注入 activity，不必真的开着 DSH。
-
-## 测试
+## 开发
 
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -v

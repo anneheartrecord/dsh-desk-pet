@@ -6,24 +6,49 @@
 
 [中文](README.md)
 
-Always-on-top desktop companion for DeepSeek Harness. Four silent display states (idle, working, waiting, error). Default skin is whale; four first-party skins ship. This is **not** an in-page widget — installing it into DSH launches a system window you can drag over the browser.
+Always-on-top desktop pet for DeepSeek Harness. Default whale, four skins, four states. Not an in-page widget.
 
-## Install into DSH
+## Install
 
-The repo is a Cordis bundle (`dsh.bundle` + `cordis.patch.yml`) and is tagged `dsh-plugin`.
+You already have DSH:
 
 ```bash
-dsh plugin --profile web add "github:anneheartrecord/dsh-desk-pet#main"
-dsh --profile web web
+dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
 ```
 
-Or run the pet alone:
+Needs macOS `/usr/bin/python3` (with Tk).
+
+## Start
+
+```bash
+dsh web
+```
+
+The pet appears when DSH boots. Drag it over the browser tab.
+
+Pet only, no DSH:
 
 ```bash
 ./bin/dsh-desk-pet
 ```
 
-Uses macOS `/usr/bin/python3` (Tk). Esc quits. The four dots switch skins without changing state.
+## Use
+
+- Drag anywhere on the window.
+- Switch skin with the four dots (does not change state).
+- States: idle / working / waiting / error. Follows local DSH by itself.
+
+## Stop
+
+- This pet: `Esc`.
+- DSH and pet together: stop `dsh web`.
+- Uninstall:
+
+```bash
+dsh plugin --profile web remove dsh-desk-pet
+```
+
+Then start `dsh web` again.
 
 ## Tests
 

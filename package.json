@@ -15,6 +15,9 @@
     "deepseek-harness",
     "desktop-pet"
   ],
+  "bin": {
+    "dsh-desk-pet": "./bin/dsh-desk-pet"
+  },
   "main": "./plugin/index.mjs",
   "exports": {
     ".": "./plugin/index.mjs",
