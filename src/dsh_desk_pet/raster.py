@@ -128,6 +128,10 @@ class Frame:
             elif cmd.shape == "line":
                 self.stroke_line(cmd.coords, _hex_rgb(cmd.fill or cmd.outline), cmd.width)
 
+    def to_ppm(self) -> bytes:
+        header = f"P6\n{self.width} {self.height}\n255\n".encode("ascii")
+        return header + bytes(self.pixels)
+
     def to_png(self) -> bytes:
         raw = bytearray()
         row = self.width * 3
@@ -179,6 +183,12 @@ def render_png(skin_id: str, state: str) -> bytes:
     frame = Frame()
     frame.paint(scene_for(skin_id, state))
     return frame.to_png()
+
+
+def render_ppm(skin_id: str, state: str) -> bytes:
+    frame = Frame()
+    frame.paint(scene_for(skin_id, state))
+    return frame.to_ppm()
 
 
 def pixel_checksum(skin_id: str, state: str) -> int:

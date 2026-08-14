@@ -10,9 +10,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 
-class _FakeCanvas:
-    def __init__(self, _master, **_kwargs) -> None:
-        self.ops = []
+class _FakeWidget:
+    def __init__(self, _master=None, **_kwargs) -> None:
+        self.kwargs = _kwargs
+        self.image = None
+        self.text = ""
 
     def pack(self, **_kwargs) -> None:
         return None
@@ -20,20 +22,19 @@ class _FakeCanvas:
     def bind(self, *_args, **_kwargs) -> None:
         return None
 
-    def delete(self, *_args) -> None:
-        self.ops.append("delete")
+    def configure(self, **kwargs) -> None:
+        if "image" in kwargs:
+            self.image = kwargs["image"]
+        if "text" in kwargs:
+            self.text = kwargs["text"]
 
-    def create_rectangle(self, *args, **kwargs) -> None:
-        self.ops.append(("rect", args, kwargs))
+    def config(self, **kwargs) -> None:
+        self.configure(**kwargs)
 
-    def create_oval(self, *args, **kwargs) -> None:
-        self.ops.append(("oval", args, kwargs))
 
-    def create_polygon(self, *args, **kwargs) -> None:
-        self.ops.append(("poly", args, kwargs))
-
-    def create_line(self, *args, **kwargs) -> None:
-        self.ops.append(("line", args, kwargs))
+class _FakePhoto:
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
 
 
 class _FakeTk:
@@ -100,6 +101,9 @@ class _FakeTk:
     def resizable(self, *_args) -> None:
         return None
 
+    def tk_setPalette(self, **_kwargs) -> None:
+        return None
+
     def destroy(self) -> None:
         return None
 
@@ -114,7 +118,10 @@ class WindowSetupTests(unittest.TestCase):
 
         fake_tk.Tk = _tk_ctor  # type: ignore[attr-defined]
         fake_tk.TclError = RuntimeError  # type: ignore[attr-defined]
-        fake_tk.Canvas = _FakeCanvas  # type: ignore[attr-defined]
+        fake_tk.Label = _FakeWidget  # type: ignore[attr-defined]
+        fake_tk.Frame = _FakeWidget  # type: ignore[attr-defined]
+        fake_tk.Button = _FakeWidget  # type: ignore[attr-defined]
+        fake_tk.PhotoImage = _FakePhoto  # type: ignore[attr-defined]
         sys.modules["tkinter"] = fake_tk
 
         from dsh_desk_pet.app import DeskPetApp

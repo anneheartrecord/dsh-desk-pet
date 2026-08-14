@@ -3,8 +3,12 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+os.environ.setdefault("NSRequiresAquaSystemAppearance", "1")
+os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"

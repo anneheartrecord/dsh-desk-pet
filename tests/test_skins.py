@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from dsh_desk_pet.mapper import AgentActivity
-from dsh_desk_pet.raster import pixel_checksum
+from dsh_desk_pet.raster import pixel_checksum, render_ppm
 from dsh_desk_pet.runtime import PetRuntime
 from dsh_desk_pet.skins import DEFAULT_SKIN_ID, default_skin, list_skins
 
@@ -47,6 +47,11 @@ class SkinCatalogTests(unittest.TestCase):
     def test_four_skins_paint_distinct_silhouettes(self) -> None:
         checksums = {skin.id: pixel_checksum(skin.id, "idle") for skin in list_skins()}
         self.assertEqual(len(set(checksums.values())), len(checksums), checksums)
+
+    def test_ppm_is_real_bitmap(self) -> None:
+        ppm = render_ppm("whale", "idle")
+        self.assertTrue(ppm.startswith(b"P6"))
+        self.assertGreater(len(ppm), 1000)
 
     def test_four_states_paint_distinct_for_whale(self) -> None:
         states = ("idle", "working", "waiting", "error")
