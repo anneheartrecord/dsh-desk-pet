@@ -94,6 +94,9 @@ class _FakeTk:
     def lift(self) -> None:
         return None
 
+    def after(self, _ms: int, func) -> None:
+        func()
+
     def resizable(self, *_args) -> None:
         return None
 
