@@ -21,6 +21,7 @@
   "main": "./plugin/index.mjs",
   "exports": {
     ".": "./plugin/index.mjs",
+    "./client": "./plugin/client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -36,6 +37,10 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
     }
   },
   "scripts": {

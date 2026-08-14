@@ -24,7 +24,7 @@ macOS 需要系统自带的 `/usr/bin/python3`（带 Tk）。
 dsh web
 ```
 
-DSH 起来后，宠物自己弹出。拖到浏览器上的 DSH 即可。
+DSH 起来后刷新 `http://127.0.0.1:3080/`，看**页面右下角**那只宠物。同时会有一个标题为「DSH Desk Pet」的小窗口。
 
 不要 DSH、只开宠物：克隆后执行 `./bin/dsh-desk-pet`。
 

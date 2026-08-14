@@ -85,12 +85,24 @@ class _FakeTk:
     def winfo_y(self) -> int:
         return 80
 
+    def winfo_screenwidth(self) -> int:
+        return 1512
+
+    def winfo_screenheight(self) -> int:
+        return 982
+
+    def lift(self) -> None:
+        return None
+
+    def resizable(self, *_args) -> None:
+        return None
+
     def destroy(self) -> None:
         return None
 
 
 class WindowSetupTests(unittest.TestCase):
-    def test_build_is_topmost_borderless_default_whale(self) -> None:
+    def test_build_is_topmost_titled_default_whale(self) -> None:
         fake_tk = types.ModuleType("tkinter")
         fake_root = _FakeTk()
 
@@ -107,8 +119,8 @@ class WindowSetupTests(unittest.TestCase):
 
         app = DeskPetApp(PetRuntime())
         app._build()
-        self.assertTrue(fake_root.overridden)
         self.assertEqual(int(fake_root.attributes("-topmost")), 1)
+        self.assertIn("DSH Desk Pet", fake_root.title_value)
         self.assertTrue(app.always_on_top())
         self.assertEqual(app.painted_skin, "whale")
         self.assertEqual(app.painted_state, "idle")

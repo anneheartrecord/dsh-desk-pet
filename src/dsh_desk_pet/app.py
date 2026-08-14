@@ -48,9 +48,18 @@ class DeskPetApp:
         os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
         root = tk.Tk()
         root.title("DSH Desk Pet")
-        root.geometry(f"{CANVAS_W}x{CANVAS_H}+80+80")
-        root.overrideredirect(True)
+        root.resizable(False, False)
+        # Titled window so it shows up in Mission Control. Bottom-right of
+        # the screen that Tk thinks is primary — not +80+80 (easy to lose
+        # on a multi-monitor / retina Mac).
+        root.update_idletasks()
+        sw = int(root.winfo_screenwidth())
+        sh = int(root.winfo_screenheight())
+        x = max(24, sw - CANVAS_W - 48)
+        y = max(24, sh - CANVAS_H - 80)
+        root.geometry(f"{CANVAS_W}x{CANVAS_H}+{x}+{y}")
         root.attributes("-topmost", True)
+        root.lift()
         try:
             root.configure(bg="#f4efe6")
         except tk.TclError:
