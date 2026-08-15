@@ -51,10 +51,12 @@ SKIN_SUBJECT = {
 # Held constant across every request. This is what stops the pet mutating.
 IDENTITY = (
     "Keep the exact same character, art style, colour palette, line weight, shading and "
-    "proportions as the reference image. Keep the identical flat background colour filling "
-    "the entire frame edge to edge, with no gradient, no shadow and no border. Keep the same "
-    "framing, the same body scale and the same position in frame. Change nothing except the "
-    "pose and facial expression described next."
+    "proportions as the reference image. Keep the identical flat magenta background colour "
+    "filling the entire frame edge to edge, with no gradient, no shadow and no border. Keep the "
+    "same framing, the same body scale and the same position in frame. Any added props, glyphs "
+    "or sparkles must be drawn in colours taken from the character's own palette — never magenta "
+    "and never the background colour, or they will be cut away with the background. Change "
+    "nothing except the pose and facial expression described next."
 )
 
 # state -> frame index -> the delta to apply.
@@ -99,12 +101,22 @@ POSES: dict[str, dict[str, str]] = {
             "slightly, the question mark beside the head tipped over at an angle. Still the same "
             "flat mouth. Not smiling, not celebrating."
         ),
+        "02": (
+            "The same waiting pose again, mid-glance: eyes rolled to look off to one side as if "
+            "checking whether anyone is coming, head still tilted, question mark still beside the "
+            "head. Same flat mouth, same body."
+        ),
     },
     "error": {
         "01": (
             "The same upset pose one instant later, crying harder: eyes squeezed shut into tight "
             "downward arcs, two large tears flying outward, mouth open in a small wail. Keep the "
             "body at exactly the same size and the same degree of disarray as the reference."
+        ),
+        "02": (
+            "The same upset pose between sobs: eyes open but watery and downturned, mouth a small "
+            "wobbling frown, a single tear still on the cheek. Body the same size and the same "
+            "degree of disarray as the reference."
         ),
     },
     "happy": {
@@ -114,8 +126,13 @@ POSES: dict[str, dict[str, str]] = {
         ),
         "01": (
             "The same delighted celebration one instant later: eyes shut in a joyful squint, mouth "
-            "wider, sparkles drifted further out. Keep the body at exactly the same size — this is "
-            "the second frame of a two-frame loop, so a change in scale reads as the pet pulsing."
+            "wider, sparkles drifted further out. Keep the body at exactly the same size — a change "
+            "in scale between frames of one loop reads as the pet pulsing."
+        ),
+        "02": (
+            "The same celebration again, arms at the top of their swing and eyes wide open and "
+            "shining, mouth still in a big open smile, sparkles at their brightest. Body at "
+            "exactly the same size as the reference."
         ),
     },
     "sleeping": {
@@ -133,6 +150,11 @@ POSES: dict[str, dict[str, str]] = {
             "The same slumped sleeping pose on a deeper breath: body settled a little lower and "
             "wider still, head drooped slightly further, eyes still closed, the ZZZ letters "
             "drifted higher and fainter."
+        ),
+        "02": (
+            "The same slumped sleeping pose at the top of a breath in: body drawn a little taller "
+            "and narrower than the reference, head lifted very slightly, eyes still closed, a fresh "
+            "small ZZZ just leaving the head."
         ),
     },
 }

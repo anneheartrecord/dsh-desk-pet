@@ -536,6 +536,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--small", action="store_true", help="draw at half size")
     parser.add_argument("--reset", action="store_true", help="forget saved position, size and skin")
     parser.add_argument("--inventory", action="store_true", help="print the frame inventory and exit")
+    parser.add_argument(
+        "--allow-second",
+        action="store_true",
+        help="start even if another pet is already running",
+    )
     args = parser.parse_args(argv)
 
     if args.inventory:
@@ -543,6 +548,15 @@ def main(argv: list[str] | None = None) -> int:
             counts = " ".join(f"{state}={count}" for state, count in states.items())
             print(f"{skin:12s} {counts}")
         return 0
+
+    if not args.probe and not args.allow_second:
+        running = bridge.live_pid()
+        if running is not None:
+            # Every DSH profile launches the plugin, so a second profile would
+            # otherwise put a second pet on screen, both writing the same state
+            # file and the page showing whichever wrote last.
+            print(f"a desk pet is already running (pid {running}); use --allow-second to override")
+            return 0
 
     saved = prefs_store.Prefs() if args.reset else prefs_store.load()
     if args.skin:

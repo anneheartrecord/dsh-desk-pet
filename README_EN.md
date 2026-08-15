@@ -96,6 +96,14 @@ Four scripts, in order:
 ./scripts/contact_sheet.py         # one reviewable image, no window required
 ```
 
+New art goes on a **magenta `#FF00FF` background**, and props (ZZZ, sparkles)
+must not use magenta or the background colour. The plate has to be a colour the
+artwork never contains: the first batch was generated on pastel plates — mint
+green behind the jellyfish — close enough to the characters that no key
+threshold could separate them, which is how that jellyfish shipped with its
+eyes cut out. Magenta sits far from all four palettes, so the key tolerance can
+be 0.24 and still take nothing off the character.
+
 **generate_frames** never redraws the character from scratch: every request is
 an image-to-image edit of an existing still. Text-to-image cannot hold identity
 across calls — ask twice and you get two different whales, in two palettes, at

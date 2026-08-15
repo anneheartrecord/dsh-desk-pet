@@ -3,12 +3,16 @@
 
 The pet only exists on screen, and this repo's tests run headless, so a
 reviewer needs some way to see what changed without a window server. This
-composites `assets/web/**` onto a loud magenta plate — anything the chroma key
-missed shows up as a grey fringe against it, and any hole in the subject shows
-up as magenta bleeding through the pet.
+composites `assets/web/**` onto a flat dark plate.
+
+Dark specifically, and not the key colour. The stills are generated on magenta,
+and reviewing them against magenta hides the one thing most worth seeing —
+leftover background becomes invisible when it matches the sheet behind it.
+Against charcoal both failure modes show: a missed key leaves a bright fringe,
+and a hole through the subject shows the sheet through the character.
 
     ./scripts/contact_sheet.py                 # -> build/contact-sheet.png
-    ./scripts/contact_sheet.py --bg 0x101014   # dark plate instead
+    ./scripts/contact_sheet.py --bg 0xF5F0E8   # light plate, for the other half
 """
 
 from __future__ import annotations
@@ -75,7 +79,7 @@ def build(out: Path, bg: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
-    parser.add_argument("--bg", default="0xFF00FF", help="plate colour behind the cut-outs")
+    parser.add_argument("--bg", default="0x14141A", help="plate colour behind the cut-outs")
     args = parser.parse_args()
     build(args.out, args.bg)
     return 0

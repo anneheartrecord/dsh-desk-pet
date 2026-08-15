@@ -90,10 +90,23 @@ def auto_timeline(state: str, frame_count: int) -> Timeline:
             )
         )
 
-    rest_hold = 600 if state in ("idle", "sleeping") else 220
+    # (hold on the rest pose, hold on each other frame). Per state, because a
+    # loop's tempo *is* its mood: sleeping at a working pace looks like panic,
+    # and celebrating at a sleeping pace looks like nothing at all.
+    rest_hold, step_hold = _TEMPO.get(state, (400, 200))
     steps: list[Step] = [(0, rest_hold)]
-    steps.extend((i, 140) for i in range(1, frame_count))
+    steps.extend((i, step_hold) for i in range(1, frame_count))
     return Timeline(tuple(steps))
+
+
+_TEMPO: dict[str, tuple[int, int]] = {
+    "idle": (2000, 200),
+    "working": (300, 260),
+    "waiting": (700, 460),
+    "error": (800, 300),
+    "happy": (200, 180),
+    "sleeping": (1500, 1300),
+}
 
 
 @dataclass(frozen=True)

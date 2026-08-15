@@ -81,3 +81,31 @@ def clear(home: Path | None = None) -> None:
     """Remove the file so a stale state cannot outlive the process."""
 
     state_path(home).unlink(missing_ok=True)
+
+
+def live_pid(home: Path | None = None, *, now_ms: int | None = None) -> int | None:
+    """PID of a pet that is currently running, if there is one.
+
+    Two DSH profiles both launch the plugin, and two pets then fight over one
+    state file — the page ends up showing whichever wrote last. Freshness alone
+    is not enough to detect that (a pet killed a second ago still looks fresh),
+    and a live PID alone is not either (PIDs get reused), so this wants both.
+    """
+
+    payload = read(home)
+    pid = payload.get("pid")
+    if not isinstance(pid, int) or pid <= 0:
+        return None
+
+    wall = payload.get("wall_ms")
+    if not isinstance(wall, (int, float)):
+        return None
+    clock = int(time.time() * 1000) if now_ms is None else now_ms
+    if clock - wall > STALE_AFTER_MS:
+        return None
+
+    try:
+        os.kill(pid, 0)  # signal 0 tests for existence without touching it
+    except (OSError, ProcessLookupError):
+        return None
+    return pid

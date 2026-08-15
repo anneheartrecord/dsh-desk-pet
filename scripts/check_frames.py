@@ -47,16 +47,26 @@ SKIN_ROOT = ROOT / "assets" / "skins"
 WEB_ROOT = ROOT / "assets" / "web"
 
 OPAQUE = 128
-# Sum-of-channel distance below which a colour counts as "the plate". Must match
-# PLATE_DISTANCE in build_frames.py — the checker's job is to verify the same
-# judgement the builder made, so the two have to be judging by the same rule.
+# Sum-of-channel distance below which a colour counts as "the plate".
+#
+# Two different questions need two different bounds. Deciding whether an
+# *enclosed transparent region* is background wants a generous one (the builder
+# uses 150): such a region either is the plate or is artwork, and those sit far
+# apart. Deciding whether an *opaque* pixel is leftover background wants a tight
+# one, because a purple character legitimately owns colours in the neighbourhood
+# of a magenta plate — the jellyfish's ZZZ glyphs are the obvious case.
+#
+# Measured against the shipped art: the closest opaque pixel to its own plate is
+# 76 away, while genuine leftover background is the plate colour and lands under
+# 30. 60 sits in that gap with room on both sides.
 PLATE_DISTANCE = 150
+PLATE_DISTANCE_OPAQUE = 60
 # Damage tolerance, after plate-coloured regions have already been excused.
 MAX_INTERIOR_HOLE_PX = 120
 MAX_TOTAL_INTERIOR_PX = 400
 # Opaque pixels still wearing the plate colour. A handful along the outline is
 # ordinary spill; a blob of them is background that got filled back in.
-MAX_PLATE_PIXELS = 120
+MAX_PLATE_PIXELS = 60
 # The two matte paths should agree closely; 1-bit quantisation costs a little.
 MAX_COVERAGE_DELTA = 0.06
 # Frames of one loop are the same body a moment apart.
@@ -102,20 +112,45 @@ def _hex_rgb(value: str) -> tuple[int, int, int]:
     return int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)
 
 
-def _near(rgb, key: tuple[int, int, int]) -> bool:
-    return sum(abs(rgb[c] - key[c]) for c in range(3)) < PLATE_DISTANCE
+def _near(rgb, key: tuple[int, int, int], limit: int = PLATE_DISTANCE) -> bool:
+    return sum(abs(rgb[c] - key[c]) for c in range(3)) < limit
 
 
 def plate_pixels(raw: bytes, mask: bytearray, w: int, h: int, key: tuple[int, int, int]) -> int:
-    """Opaque pixels still wearing the plate colour."""
+    """Size of the largest *connected* run of opaque plate-coloured pixels.
 
-    count = 0
+    Connectivity is what makes this specific. A purple character legitimately
+    contains a hundred pixels within reach of a magenta key, scattered one and
+    two at a time across its whole body; leftover background is a contiguous
+    patch. Counting every matching pixel condemns the first and would miss a
+    small patch of the second.
+    """
+
+    plate = bytearray(w * h)
     for i in range(w * h):
-        if not mask[i]:
+        if mask[i] and _near((raw[i * 4], raw[i * 4 + 1], raw[i * 4 + 2]), key, PLATE_DISTANCE_OPAQUE):
+            plate[i] = 1
+
+    seen = bytearray(w * h)
+    largest = 0
+    for start in range(w * h):
+        if not plate[start] or seen[start]:
             continue
-        if _near((raw[i * 4], raw[i * 4 + 1], raw[i * 4 + 2]), key):
-            count += 1
-    return count
+        size = 0
+        seen[start] = 1
+        stack = [start]
+        while stack:
+            i = stack.pop()
+            size += 1
+            x, y = i % w, i // w
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if 0 <= nx < w and 0 <= ny < h:
+                    j = ny * w + nx
+                    if plate[j] and not seen[j]:
+                        seen[j] = 1
+                        stack.append(j)
+        largest = max(largest, size)
+    return largest
 
 
 def interior_holes(
@@ -237,13 +272,19 @@ def collect() -> dict:
         skin, state = gif.parts[-3], gif.parts[-2]
         png = WEB_ROOT / skin / state / f"{gif.stem}.png"
         key = keys.get(f"{skin}/{state}/{gif.stem}")
-        entry = inspect(gif, key)
+        # Holes are judged on the PNG, not the GIF. Deciding whether an enclosed
+        # region is background or damage needs the colour *underneath* the
+        # transparency, and a GIF's palette throws that away — every cut-out
+        # pixel decodes back as black, so every legitimate gap would read as
+        # damage. The PNG keeps the original RGB under alpha.
+        entry = inspect(png if png.is_file() else gif, key)
         entry["state"] = state
         entry["skin"] = skin
+        entry["gif"] = str(gif.relative_to(ROOT))
         if png.is_file():
-            web = inspect(png, key)
-            entry["web_coverage"] = web["coverage"]
-            entry["coverage_delta"] = round(abs(web["coverage"] - entry["coverage"]), 4)
+            desktop = inspect(gif, None)
+            entry["gif_coverage"] = desktop["coverage"]
+            entry["coverage_delta"] = round(abs(desktop["coverage"] - entry["coverage"]), 4)
         report["frames"][f"{skin}/{state}/{gif.stem}"] = entry
 
         if entry["plate_px"] > MAX_PLATE_PIXELS:

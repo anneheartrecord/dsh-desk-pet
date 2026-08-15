@@ -3,34 +3,41 @@
   "skins": {
     "jellyfish": {
       "crop_relative": [
-        0.1055,
-        0.0686,
-        0.8945,
+        0.0781,
+        0.1025,
+        0.917,
         0.916
       ],
       "keys": {
-        "error/00": "0xA3F1CA",
-        "error/01": "0xA3ECC8",
-        "happy/00": "0x9EF1C8",
-        "happy/01": "0x9DEEC8",
-        "idle/00": "0xA4F4CC",
-        "idle/01": "0xA5F0CA",
-        "idle/02": "0x9EEEC9",
-        "sleeping/00": "0xA3ECC7",
-        "sleeping/01": "0xA3EAC8",
-        "waiting/00": "0xA4EBC7",
-        "waiting/01": "0xA0EEC8",
-        "working/00": "0xA4F0CA",
-        "working/01": "0xA1EAC9"
+        "error/00": "0xFB05E9",
+        "error/01": "0xF00CED",
+        "error/02": "0xF404D7",
+        "happy/00": "0xF603E2",
+        "happy/01": "0xF409E6",
+        "happy/02": "0xEB02D3",
+        "idle/00": "0xF805EA",
+        "idle/01": "0xF305EC",
+        "idle/02": "0xF810E5",
+        "sleeping/00": "0xF20DE2",
+        "sleeping/01": "0xE90CD6",
+        "sleeping/02": "0xE813D5",
+        "waiting/00": "0xF604EC",
+        "waiting/01": "0xF406E3",
+        "waiting/02": "0xEA08E3",
+        "working/00": "0xF609EC",
+        "working/01": "0xF005DE",
+        "working/02": "0xEE0DDE"
       },
       "states": {
         "error": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "happy": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "idle": [
           "00.gif",
@@ -39,36 +46,47 @@
         ],
         "sleeping": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "waiting": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "working": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ]
       },
       "timelines": {
         "error": [
           [
             0,
-            900
+            800
           ],
           [
             1,
-            220
+            300
+          ],
+          [
+            2,
+            300
           ]
         ],
         "happy": [
           [
             0,
-            500
+            200
           ],
           [
             1,
-            260
+            180
+          ],
+          [
+            2,
+            180
           ]
         ],
         "idle": [
@@ -108,30 +126,42 @@
         "sleeping": [
           [
             0,
-            1800
+            1500
           ],
           [
             1,
-            1800
+            1300
+          ],
+          [
+            2,
+            1300
           ]
         ],
         "waiting": [
           [
             0,
-            520
+            700
           ],
           [
             1,
-            320
+            460
+          ],
+          [
+            2,
+            460
           ]
         ],
         "working": [
           [
             0,
-            260
+            300
           ],
           [
             1,
+            260
+          ],
+          [
+            2,
             260
           ]
         ]
@@ -139,34 +169,41 @@
     },
     "nautilus": {
       "crop_relative": [
-        0.0723,
+        0.0742,
         0.1611,
-        0.9014,
-        0.8369
+        0.9189,
+        0.8496
       ],
       "keys": {
-        "error/00": "0x08C434",
-        "error/01": "0x0EBF34",
-        "happy/00": "0x07D02D",
-        "happy/01": "0x08C731",
-        "idle/00": "0x01D42A",
-        "idle/01": "0x02CF2D",
-        "idle/02": "0x09C432",
-        "sleeping/00": "0x05CB30",
-        "sleeping/01": "0x10C034",
-        "waiting/00": "0x0EBD34",
-        "waiting/01": "0x0AC035",
-        "working/00": "0x01CF2B",
-        "working/01": "0x03C92D"
+        "error/00": "0xF905DE",
+        "error/01": "0xF407DE",
+        "error/02": "0xF005D2",
+        "happy/00": "0xF506E5",
+        "happy/01": "0xF20CDE",
+        "happy/02": "0xF005D9",
+        "idle/00": "0xF50BE6",
+        "idle/01": "0xF605E4",
+        "idle/02": "0xF804F3",
+        "sleeping/00": "0xF20BE1",
+        "sleeping/01": "0xE713D5",
+        "sleeping/02": "0xEA07D7",
+        "waiting/00": "0xF406E8",
+        "waiting/01": "0xF608E1",
+        "waiting/02": "0xEB12DD",
+        "working/00": "0xF806E4",
+        "working/01": "0xEF0CDB",
+        "working/02": "0xF00ADC"
       },
       "states": {
         "error": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "happy": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "idle": [
           "00.gif",
@@ -175,36 +212,47 @@
         ],
         "sleeping": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "waiting": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "working": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ]
       },
       "timelines": {
         "error": [
           [
             0,
-            900
+            800
           ],
           [
             1,
-            220
+            300
+          ],
+          [
+            2,
+            300
           ]
         ],
         "happy": [
           [
             0,
-            500
+            200
           ],
           [
             1,
-            260
+            180
+          ],
+          [
+            2,
+            180
           ]
         ],
         "idle": [
@@ -244,30 +292,42 @@
         "sleeping": [
           [
             0,
-            1800
+            1500
           ],
           [
             1,
-            1800
+            1300
+          ],
+          [
+            2,
+            1300
           ]
         ],
         "waiting": [
           [
             0,
-            520
+            700
           ],
           [
             1,
-            320
+            460
+          ],
+          [
+            2,
+            460
           ]
         ],
         "working": [
           [
             0,
-            260
+            300
           ],
           [
             1,
+            260
+          ],
+          [
+            2,
             260
           ]
         ]
@@ -275,34 +335,41 @@
     },
     "threadcore": {
       "crop_relative": [
-        0.1045,
-        0.1328,
-        0.8613,
-        0.8611
+        0.0837,
+        0.126,
+        0.874,
+        0.8643
       ],
       "keys": {
-        "error/00": "0x01DC13",
-        "error/01": "0x07CF24",
-        "happy/00": "0x04D620",
-        "happy/01": "0x08DB1E",
-        "idle/00": "0x00E412",
-        "idle/01": "0x01DD14",
-        "idle/02": "0x09D621",
-        "sleeping/00": "0x07D521",
-        "sleeping/01": "0x07DD0E",
-        "waiting/00": "0x06D71E",
-        "waiting/01": "0x09DB15",
-        "working/00": "0x01DC14",
-        "working/01": "0x06DE18"
+        "error/00": "0xF20AE9",
+        "error/01": "0xF309E4",
+        "error/02": "0xE909E2",
+        "happy/00": "0xF609D8",
+        "happy/01": "0xF213CC",
+        "happy/02": "0xEC0BCC",
+        "idle/00": "0xFB06D7",
+        "idle/01": "0xF50BE4",
+        "idle/02": "0xF611E1",
+        "sleeping/00": "0xF407D0",
+        "sleeping/01": "0xEB11C9",
+        "sleeping/02": "0xED0DC5",
+        "waiting/00": "0xF809DA",
+        "waiting/01": "0xF50FF1",
+        "waiting/02": "0xEC11CA",
+        "working/00": "0xF60BE1",
+        "working/01": "0xEE0CD6",
+        "working/02": "0xF30DDB"
       },
       "states": {
         "error": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "happy": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "idle": [
           "00.gif",
@@ -311,36 +378,47 @@
         ],
         "sleeping": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "waiting": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "working": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ]
       },
       "timelines": {
         "error": [
           [
             0,
-            900
+            800
           ],
           [
             1,
-            220
+            300
+          ],
+          [
+            2,
+            300
           ]
         ],
         "happy": [
           [
             0,
-            500
+            200
           ],
           [
             1,
-            260
+            180
+          ],
+          [
+            2,
+            180
           ]
         ],
         "idle": [
@@ -380,30 +458,42 @@
         "sleeping": [
           [
             0,
-            1800
+            1500
           ],
           [
             1,
-            1800
+            1300
+          ],
+          [
+            2,
+            1300
           ]
         ],
         "waiting": [
           [
             0,
-            520
+            700
           ],
           [
             1,
-            320
+            460
+          ],
+          [
+            2,
+            460
           ]
         ],
         "working": [
           [
             0,
-            260
+            300
           ],
           [
             1,
+            260
+          ],
+          [
+            2,
             260
           ]
         ]
@@ -411,34 +501,41 @@
     },
     "whale": {
       "crop_relative": [
-        0.1309,
-        0.0947,
-        0.8907,
-        0.8652
+        0.1123,
+        0.1426,
+        0.9258,
+        0.8564
       ],
       "keys": {
-        "error/00": "0x17CFF3",
-        "error/01": "0x16CBF4",
-        "happy/00": "0x15CCF5",
-        "happy/01": "0x17C8F3",
-        "idle/00": "0x15D1F6",
-        "idle/01": "0x17CFF3",
-        "idle/02": "0x18CDF7",
-        "sleeping/00": "0x05CCFB",
-        "sleeping/01": "0x0ECAF6",
-        "waiting/00": "0x1ACCF5",
-        "waiting/01": "0x14C6F3",
-        "working/00": "0x16CEF2",
-        "working/01": "0x1AC8F3"
+        "error/00": "0xF702F0",
+        "error/01": "0xF904E6",
+        "error/02": "0xEE07E5",
+        "happy/00": "0xF703EC",
+        "happy/01": "0xF203DD",
+        "happy/02": "0xEE03E0",
+        "idle/00": "0xF608E8",
+        "idle/01": "0xF804E5",
+        "idle/02": "0xF606E1",
+        "sleeping/00": "0xED0DD9",
+        "sleeping/01": "0xE512CB",
+        "sleeping/02": "0xE90ED4",
+        "waiting/00": "0xFA02F1",
+        "waiting/01": "0xF405F1",
+        "waiting/02": "0xF007E8",
+        "working/00": "0xFA05EA",
+        "working/01": "0xF705E0",
+        "working/02": "0xF104DB"
       },
       "states": {
         "error": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "happy": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "idle": [
           "00.gif",
@@ -447,36 +544,47 @@
         ],
         "sleeping": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "waiting": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ],
         "working": [
           "00.gif",
-          "01.gif"
+          "01.gif",
+          "02.gif"
         ]
       },
       "timelines": {
         "error": [
           [
             0,
-            900
+            800
           ],
           [
             1,
-            220
+            300
+          ],
+          [
+            2,
+            300
           ]
         ],
         "happy": [
           [
             0,
-            500
+            200
           ],
           [
             1,
-            260
+            180
+          ],
+          [
+            2,
+            180
           ]
         ],
         "idle": [
@@ -516,30 +624,42 @@
         "sleeping": [
           [
             0,
-            1800
+            1500
           ],
           [
             1,
-            1800
+            1300
+          ],
+          [
+            2,
+            1300
           ]
         ],
         "waiting": [
           [
             0,
-            520
+            700
           ],
           [
             1,
-            320
+            460
+          ],
+          [
+            2,
+            460
           ]
         ],
         "working": [
           [
             0,
-            260
+            300
           ],
           [
             1,
+            260
+          ],
+          [
+            2,
             260
           ]
         ]

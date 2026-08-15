@@ -38,16 +38,20 @@ WEB_ROOT = ROOT / "assets" / "web"
 MANIFEST = SKIN_ROOT / "manifest.json"
 
 FRAME_SIZE = 200
-# `colorkey`, not `chromakey`. chromakey matches on chroma alone and ignores
-# luma, so against a pastel plate like the jellyfish's mint (0xA4F4CC) every
-# near-neutral pixel in the art falls inside the radius — it was deleting the
-# character's black eyes and punching 60 holes through its body. colorkey
-# compares full RGB distance and leaves them alone.
+# `colorkey`, not `chromakey`: chromakey matches on chroma alone and ignores
+# luma, so against a pastel plate it deletes the character's black eyes.
 #
-# 0.08 measured across all four skins: jellyfish interior holes 1015 -> 180,
-# nautilus and whale unchanged at 0, threadcore unchanged. Blend stays at 0
-# because GIF alpha is 1-bit and any soft edge just quantises into a fringe.
-SIMILARITY = 0.08
+# The stills are all generated on magenta, which appears nowhere in any of these
+# palettes. That is what makes the tolerance below generous rather than a
+# compromise: measured across all four skins, subject coverage is identical at
+# 0.08 and at 0.32, so nothing of the character is at stake anywhere in that
+# range. It only starts costing art at 0.40. 0.24 comfortably absorbs the
+# plate-to-plate variation between generations (0xF208EC..0xF805EB) with room
+# to spare on both sides.
+#
+# Blend stays at 0: GIF alpha is 1-bit, so a soft key edge only quantises into
+# a fringe. `_despill_edges` cleans the edge afterwards instead.
+SIMILARITY = 0.24
 BLEND = 0.0
 ALPHA_CUTOFF = 160
 # Where the bottom of the body sits inside the square crop. Shared by every
@@ -188,8 +192,13 @@ def square_crop(
     fx0, fy1 = box[0] * w, box[3] * h
     fx1 = box[2] * w
     cx = (fx0 + fx1) / 2
-    x = max(0, min(int(round(cx - side / 2)), w - side))
-    y = max(0, min(int(round(fy1 - side * BASELINE_RATIO)), h - side))
+    # Deliberately unclamped. A pose sitting low in its source needs a crop that
+    # runs past the bottom edge, and clamping it back inside pushes the body up
+    # the frame instead — which is how the nautilus ended up 16px above every
+    # other skin. `build_frame` pads the source first so these offsets are
+    # always valid.
+    x = int(round(cx - side / 2))
+    y = int(round(fy1 - side * BASELINE_RATIO))
     return x, y, side, side
 
 
@@ -358,7 +367,18 @@ def _write_png_rgba(path: Path, w: int, h: int, raw: bytes) -> None:
 
 def build_frame(src: Path, key: str, crop: tuple[int, int, int, int], gif_out: Path, png_out: Path) -> int:
     x, y, cw, ch = crop
-    base = f"{_key_filter(key)},crop={cw}:{ch}:{x}:{y},scale={FRAME_SIZE}:{FRAME_SIZE}:flags=lanczos"
+    w, h = _probe_size(src)
+    # Grow the canvas with more plate before cropping, so a crop box that runs
+    # off the edge simply lands on background instead of having to be clamped
+    # back inside — clamping moves the character within the frame, which is the
+    # one thing the baseline anchoring exists to prevent.
+    pad = int(round(0.3 * min(w, h)))
+    base = (
+        f"pad={w + 2 * pad}:{h + 2 * pad}:{pad}:{pad}:color={key.replace('0x', '#')},"
+        f"{_key_filter(key)},"
+        f"crop={cw}:{ch}:{x + pad}:{y + pad},"
+        f"scale={FRAME_SIZE}:{FRAME_SIZE}:flags=lanczos"
+    )
     gif_out.parent.mkdir(parents=True, exist_ok=True)
     png_out.parent.mkdir(parents=True, exist_ok=True)
 

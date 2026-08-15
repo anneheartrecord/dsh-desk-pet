@@ -88,6 +88,17 @@ class AutoTimelineTests(unittest.TestCase):
     def test_zero_frames_does_not_explode(self) -> None:
         self.assertEqual(auto_timeline("idle", 0).total_ms, 0)
 
+    def test_tempo_matches_the_mood(self) -> None:
+        """A loop's speed carries as much of the state as its drawings do."""
+
+        cycles = {state: auto_timeline(state, 3).total_ms for state in ("happy", "working", "sleeping")}
+        self.assertLess(cycles["happy"], cycles["working"])
+        self.assertLess(cycles["working"], cycles["sleeping"])
+
+    def test_sleeping_does_not_flutter(self) -> None:
+        tl = auto_timeline("sleeping", 3)
+        self.assertGreater(min(ms for _f, ms in tl.steps), 900)
+
 
 class MotionTests(unittest.TestCase):
     def test_breath_moves_and_returns(self) -> None:

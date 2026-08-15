@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -64,6 +65,46 @@ class BridgeTests(unittest.TestCase):
 
     def test_clear_is_safe_when_nothing_was_published(self) -> None:
         bridge.clear(self.home)  # must not raise
+
+
+class LivePidTests(unittest.TestCase):
+    """Two DSH profiles both launch the plugin; only one pet should appear."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = Path(self.tmp.name)
+
+    def _write(self, **fields) -> None:
+        path = bridge.state_path(self.home)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"skin": "whale", "state": "idle"}
+        payload.update(fields)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def test_our_own_fresh_entry_counts_as_live(self) -> None:
+        now = 1_000_000
+        self._write(pid=os.getpid(), wall_ms=now)
+        self.assertEqual(bridge.live_pid(self.home, now_ms=now), os.getpid())
+
+    def test_stale_entry_is_not_live_even_for_a_real_pid(self) -> None:
+        """A pet killed a while ago leaves a file naming a pid that still exists."""
+
+        now = 1_000_000
+        self._write(pid=os.getpid(), wall_ms=now - bridge.STALE_AFTER_MS - 1)
+        self.assertIsNone(bridge.live_pid(self.home, now_ms=now))
+
+    def test_dead_pid_is_not_live_even_when_fresh(self) -> None:
+        now = 1_000_000
+        self._write(pid=999_999, wall_ms=now)
+        self.assertIsNone(bridge.live_pid(self.home, now_ms=now))
+
+    def test_missing_file_is_not_live(self) -> None:
+        self.assertIsNone(bridge.live_pid(self.home / "nowhere"))
+
+    def test_missing_fields_are_not_live(self) -> None:
+        self._write()
+        self.assertIsNone(bridge.live_pid(self.home))
 
 
 if __name__ == "__main__":
