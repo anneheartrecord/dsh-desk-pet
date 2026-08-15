@@ -40,6 +40,9 @@ POLL_MS = 600
 HEARTBEAT_MS = 2000
 # How often to re-assert always-on-top. Aqua drops it on focus changes.
 TOPMOST_MS = 4000
+# How often to ask the window server where the pointer is. The doze threshold
+# is 90s, so anything under a second is free precision bought at 30Hz.
+POINTER_MS = 400
 # Fallback plate colour if this Tk cannot do a transparent window.
 OPAQUE_BG = "#f4efe6"
 # Set DSH_PET_DEBUG=1 to trace the observe -> state loop on stderr.
@@ -95,6 +98,9 @@ class DeskPetApp:
         self._latest_activity: AgentActivity | None = None
         self._pointer_seen: tuple[int, int] | None = None
         self._pointer_moved_ms = 0
+        self._pointer_checked_ms = -POINTER_MS
+        self._drawn_frame: Path | None = None
+        self._drawn_at: tuple[int, int] | None = None
         self._watcher: threading.Thread | None = None
         self._stop_watch = threading.Event()
         self.publish_state = True
@@ -407,13 +413,22 @@ class DeskPetApp:
         centre = self.canvas_side / 2
         x, y = centre + motion.dx, centre + motion.dy
 
+        # Quantise, then skip the no-op. The breath is a slow sine, so at 30Hz a
+        # run of consecutive frames rounds to the same pixel — telling Tk to
+        # move the sprite to where it already is costs a canvas update each
+        # time and moves nothing.
+        x, y = round(x), round(y)
         photo = self._photo_for(frame)
         self._photo = photo
         if self._sprite_id is None:
             self._sprite_id = self._canvas.create_image(x, y, image=photo)
         else:
-            self._canvas.itemconfigure(self._sprite_id, image=photo)
-            self._canvas.coords(self._sprite_id, x, y)
+            if frame != self._drawn_frame:
+                self._canvas.itemconfigure(self._sprite_id, image=photo)
+            if (x, y) != self._drawn_at:
+                self._canvas.coords(self._sprite_id, x, y)
+        self._drawn_frame = frame
+        self._drawn_at = (x, y)
 
     # ------------------------------------------------------------------ loops
 
@@ -453,13 +468,19 @@ class DeskPetApp:
 
         if self._root is None:
             return None
-        try:
-            position = self._root.winfo_pointerxy()
-        except Exception:
-            return None
-        if position != self._pointer_seen:
-            self._pointer_seen = position
-            self._pointer_moved_ms = at_ms
+        # Sampled, not read every frame. `winfo_pointerxy` is a round trip to
+        # the window server, and at 30Hz that is the single most expensive
+        # thing the render loop does — to answer a question whose threshold is
+        # ninety seconds.
+        if at_ms - self._pointer_checked_ms >= POINTER_MS:
+            self._pointer_checked_ms = at_ms
+            try:
+                position = self._root.winfo_pointerxy()
+            except Exception:
+                return None
+            if position != self._pointer_seen:
+                self._pointer_seen = position
+                self._pointer_moved_ms = at_ms
         return at_ms - self._pointer_moved_ms
 
     def _frame_tick(self) -> None:
