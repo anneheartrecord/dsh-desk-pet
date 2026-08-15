@@ -33,6 +33,23 @@ DSH page.
 
 Pet only, no DSH: clone the repo and run `./bin/dsh-desk-pet`.
 
+## Known limits
+
+**Fullscreen apps cover it.** A macOS fullscreen app owns its own Space, and Tk
+offers only a boolean always-on-top — not the `screen-saver` window level an
+Electron pet can reach — so it cannot cross into that Space. The pet is hidden
+while you are in a fullscreen video or editor, and returns when you leave. That
+is Tk's ceiling, not a bug.
+
+**Can't see the pet?** A borderless transparent window is the most fragile
+rendering path there is. `--opaque` swaps it for a titled window on a solid
+background; if that one shows up, the problem is transparency compositing
+rather than the pet failing to start:
+
+```bash
+./bin/dsh-desk-pet --opaque
+```
+
 ## Use
 
 - **Drag**: grab it anywhere.

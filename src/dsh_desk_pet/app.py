@@ -57,7 +57,14 @@ class DeskPetApp:
         *,
         clock=now_ms,
         prefs: prefs_store.Prefs | None = None,
+        opaque: bool = False,
     ) -> None:
+        # Escape hatch. A borderless transparent window is the right look, but
+        # it is also the configuration with the most ways to render as nothing
+        # at all on an unfamiliar macOS build — and a pet you cannot see gives
+        # you no way to tell "broken" from "invisible". `--opaque` trades the
+        # look for a window that is unmistakably there.
+        self.force_opaque = opaque
         self.prefs = (prefs or prefs_store.Prefs()).clamped()
         self.clock = clock
         # Seed from the same clock the app runs on. A runtime starting at t=0
@@ -160,12 +167,14 @@ class DeskPetApp:
         root.geometry(f"{side}x{side}+{x}+{y}")
         root.resizable(False, False)
 
-        borderless = self._try(root.overrideredirect, True)
+        borderless = not self.force_opaque and self._try(root.overrideredirect, True)
         # Order matters: on Aqua, dropping the chrome clears -topmost, so it has
         # to be (re)set afterwards or the pet quietly sinks behind the browser.
         self._try(root.attributes, "-topmost", True)
-        self.transparent = self._try(root.wm_attributes, "-transparent", True) and self._try(
-            root.configure, bg="systemTransparent"
+        self.transparent = (
+            not self.force_opaque
+            and self._try(root.wm_attributes, "-transparent", True)
+            and self._try(root.configure, bg="systemTransparent")
         )
         bg = "systemTransparent" if self.transparent else OPAQUE_BG
         if not self.transparent:
@@ -203,7 +212,12 @@ class DeskPetApp:
         if mapped:
             root.deiconify()
             root.lift()
-            root.after(TOPMOST_MS, self._topmost_tick)
+            # Mapping the window clears -topmost on Aqua, so setting it before
+            # deiconify (as the probe measures it) is not enough: measured on a
+            # real display, the attribute reads back 0 once the window is up.
+            # Re-assert immediately, then keep re-asserting, because focus
+            # changes clear it again.
+            self._topmost_tick()
 
     def _build_menu(self, root):
         import tkinter as tk
@@ -534,6 +548,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skin", help="starting skin id (overrides the saved one)")
     parser.add_argument("--state", default="idle", help="starting state")
     parser.add_argument("--small", action="store_true", help="draw at half size")
+    parser.add_argument(
+        "--opaque",
+        action="store_true",
+        help="titled window on a solid background — use if the pet is invisible",
+    )
     parser.add_argument("--reset", action="store_true", help="forget saved position, size and skin")
     parser.add_argument("--inventory", action="store_true", help="print the frame inventory and exit")
     parser.add_argument(
@@ -571,7 +590,7 @@ def main(argv: list[str] | None = None) -> int:
     # platforms where that is boot-relative sails straight past SLEEP_AFTER_MS
     # and the pet launches already asleep.
     runtime = PetRuntime(skin_id=saved.skin_id, state=args.state, now_ms=now_ms())  # type: ignore[arg-type]
-    app = DeskPetApp(runtime, prefs=saved)
+    app = DeskPetApp(runtime, prefs=saved, opaque=args.opaque)
     return app.probe(args.probe_skin) if args.probe else app.run()
 
 

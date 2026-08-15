@@ -40,7 +40,13 @@ class ObserverTests(unittest.TestCase):
         activity = observe_activity(home=self.home, process_running=True, now=None)
         self.assertEqual(map_activity(activity), "working")
 
-    def test_running_process_with_stale_session_is_waiting(self) -> None:
+    def test_running_process_with_stale_session_is_idle_not_waiting(self) -> None:
+        """`dsh web` sitting there serving nothing is not the agent needing you.
+
+        Inferring `waiting` from process presence alone parked a question mark
+        over the pet's head permanently, which is the opposite of a signal.
+        """
+
         sessions = self.home / "sessions"
         sessions.mkdir(parents=True)
         stale = sessions / "log.txt"
@@ -48,6 +54,19 @@ class ObserverTests(unittest.TestCase):
         activity = observe_activity(
             home=self.home, process_running=True, now=stale.stat().st_mtime + 3600
         )
+        self.assertEqual(map_activity(activity), "idle")
+
+    def test_waiting_still_comes_from_an_explicit_signal(self) -> None:
+        sessions = self.home / "sessions"
+        sessions.mkdir(parents=True)
+        (sessions / "log.jsonl").write_text('{"kind":"needs_input"}\n', encoding="utf-8")
+        activity = observe_activity(home=self.home, process_running=True)
+        self.assertEqual(map_activity(activity), "waiting")
+
+    def test_hint_file_still_drives_waiting(self) -> None:
+        (self.home).mkdir(parents=True, exist_ok=True)
+        (self.home / "pet-activity.json").write_text('{"kind":"approval"}', encoding="utf-8")
+        activity = observe_activity(home=self.home, process_running=True)
         self.assertEqual(map_activity(activity), "waiting")
 
     def test_unreadable_home_does_not_raise(self) -> None:

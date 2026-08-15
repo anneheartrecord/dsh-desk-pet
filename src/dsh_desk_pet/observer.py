@@ -188,6 +188,10 @@ def observe_activity(
 
     if running and recently_written:
         return AgentActivity(kind="working")
-    if running:
-        return AgentActivity(kind="waiting")
+    # A running DSH with nothing happening is idle, not waiting. `waiting` means
+    # "blocked on you" and puts a question mark over the pet's head; inferring it
+    # from mere process presence left the pet permanently asking for attention
+    # while `dsh web` simply sat there serving nothing. Only an explicit signal —
+    # the hint file, or an approval/input keyword in the session tail, both
+    # handled above — earns that face.
     return AgentActivity(kind="none")
