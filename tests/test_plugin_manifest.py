@@ -1,33 +1,105 @@
-"""The shipped package must be a discoverable DSH bundle."""
+"""The shipped package must be a discoverable DSH bundle that carries its art.
+
+These are cheap string assertions, but each one stands for a way the plugin has
+already been able to install successfully and still show nothing: art excluded
+from the tarball, a route dropped on teardown, or a second hand-drawn pet
+quietly diverging from the real one.
+"""
 
 from __future__ import annotations
 
 import json
-import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
 
 
-class PluginManifestTests(unittest.TestCase):
-    def test_bundle_patch_and_apply_export_exist(self) -> None:
-        pkg = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
-        self.assertEqual(pkg["name"], "dsh-desk-pet")
-        self.assertEqual(pkg["dsh"]["bundle"]["patch"], "./cordis.patch.yml")
-        self.assertEqual(pkg["dsh"]["client"]["platform"], "web")
-        self.assertTrue((ROOT / "plugin" / "client.js").is_file())
-        client = (ROOT / "plugin" / "client.js").read_text(encoding="utf-8")
+def _read(*parts: str) -> str:
+    return (ROOT.joinpath(*parts)).read_text(encoding="utf-8")
+
+
+class PackageTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.pkg = json.loads(_read("package.json"))
+
+    def test_identifies_as_a_dsh_bundle(self) -> None:
+        self.assertEqual(self.pkg["name"], "dsh-desk-pet")
+        self.assertEqual(self.pkg["dsh"]["bundle"]["patch"], "./cordis.patch.yml")
+        self.assertEqual(self.pkg["dsh"]["client"]["platform"], "web")
+        self.assertIn("dsh-plugin", self.pkg["keywords"])
+
+    def test_cordis_patch_inserts_the_plugin(self) -> None:
+        self.assertIn("id: dsh-desk-pet", _read("cordis.patch.yml"))
+
+    def test_published_files_include_the_art(self) -> None:
+        """Installing from git and getting a pet with no frames is the old bug."""
+
+        files = self.pkg["files"]
+        self.assertIn("assets/skins", files, "GIF frames would not ship")
+        self.assertIn("assets/web", files, "overlay PNG frames would not ship")
+
+    def test_published_files_exclude_the_chroma_key_sources(self) -> None:
+        """`assets/source` is build input; shipping it doubles the download."""
+
+        self.assertNotIn("assets", self.pkg["files"])
+        self.assertNotIn("assets/source", self.pkg["files"])
+
+
+class HostPluginTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.plugin = _read("plugin", "index.mjs")
+
+    def test_exports_the_cordis_surface(self) -> None:
+        self.assertIn("export function apply", self.plugin)
+        self.assertIn("export const name = 'dsh-desk-pet'", self.plugin)
+        self.assertIn("tapIndex", self.plugin)
+
+    def test_serves_state_manifest_and_frames(self) -> None:
+        for route in ("/dsh-desk-pet/state", "/dsh-desk-pet/manifest.json", "/dsh-desk-pet/frames/"):
+            self.assertIn(route, self.plugin, f"{route} is not served")
+
+    def test_every_registered_route_is_torn_down(self) -> None:
+        """A route left registered survives plugin removal and 404s forever."""
+
+        registered = self.plugin.count("ctx.webServer.register(")
+        for handle in ("unstate()", "unmanifest()", "unoverlay()", "unframes()", "untap()"):
+            self.assertIn(handle, self.plugin, f"{handle} missing from teardown")
+        self.assertEqual(registered, 4, "a route was added without a teardown assertion")
+
+    def test_frame_route_refuses_to_escape_the_asset_root(self) -> None:
+        self.assertIn("safeJoin", self.plugin)
+        self.assertIn("startsWith(prefix)", self.plugin)
+
+    def test_state_route_degrades_instead_of_failing(self) -> None:
+        self.assertIn("live: false", self.plugin)
+
+
+class OverlayTests(unittest.TestCase):
+    def test_overlay_mounts_once_and_uses_real_frames(self) -> None:
+        overlay = _read("plugin", "overlay.js")
+        self.assertIn("dsh-desk-pet-root", overlay)
+        self.assertIn("__dshDeskPetMounted", overlay)
+        # Paths are built from a BASE constant, so assert the pieces, not the
+        # joined literal — otherwise this passes only by accident of spelling.
+        self.assertIn('BASE = "/dsh-desk-pet"', overlay)
+        self.assertIn('"/frames/"', overlay)
+        self.assertIn('BASE + "/state"', overlay)
+        self.assertIn('BASE + "/manifest.json"', overlay)
+
+    def test_overlay_does_not_hand_draw_a_second_pet(self) -> None:
+        """The page pet must mirror the desktop one, not re-invent it."""
+
+        overlay = _read("plugin", "overlay.js")
+        self.assertNotIn("<ellipse", overlay)
+        self.assertNotIn("<svg", overlay)
+
+    def test_client_module_defers_to_the_same_overlay(self) -> None:
+        client = _read("plugin", "client.js")
         self.assertIn("__ModuleLoader__", client)
-        self.assertIn("dsh-desk-pet-root", client)
-        self.assertTrue((ROOT / "cordis.patch.yml").is_file())
-        patch = (ROOT / "cordis.patch.yml").read_text(encoding="utf-8")
-        self.assertIn("id: dsh-desk-pet", patch)
-        plugin = (ROOT / "plugin" / "index.mjs").read_text(encoding="utf-8")
-        self.assertIn("export function apply", plugin)
-        self.assertIn("export const name = 'dsh-desk-pet'", plugin)
-        self.assertIn("tapIndex", plugin)
-        self.assertTrue((ROOT / "plugin" / "overlay.js").is_file())
-        self.assertIn("dsh-desk-pet-root", (ROOT / "plugin" / "overlay.js").read_text(encoding="utf-8"))
-        self.assertIn("dsh-plugin", pkg["keywords"])
+        self.assertIn("/dsh-desk-pet/overlay.js", client)
+        self.assertNotIn("<ellipse", client)
+
+
+if __name__ == "__main__":
+    unittest.main()

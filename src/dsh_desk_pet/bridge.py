@@ -1,0 +1,65 @@
+"""Publish what the desktop pet is doing so the in-page overlay can mirror it.
+
+There are two pets — a Tk window and a `<div>` injected into the DSH page — and
+only one of them can watch the agent. Running the observer twice would let them
+disagree, and polling DSH from Node would mean a second implementation of the
+same heuristics. So the desktop process is the single authority: it writes a
+tiny JSON file, and the plugin's HTTP route just reads it back out.
+
+The write is atomic (temp file + rename) because the route may read it mid-write
+at any moment, and a half-written file would show up as a parse error in the
+browser rather than a stale-but-valid state.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+from pathlib import Path
+
+STATE_DIRNAME = ".dsh-desk-pet"
+STATE_FILENAME = "state.json"
+
+
+def state_path(home: Path | None = None) -> Path:
+    base = home if home is not None else Path.home()
+    return base / STATE_DIRNAME / STATE_FILENAME
+
+
+def publish(skin_id: str, state: str, *, home: Path | None = None, epoch_ms: int = 0) -> Path:
+    """Write the current skin/state. Returns the path written."""
+
+    path = state_path(home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"skin": skin_id, "state": state, "epoch_ms": epoch_ms}
+    blob = json.dumps(payload, separators=(",", ":"))
+
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".state-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(blob)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    return path
+
+
+def read(home: Path | None = None) -> dict:
+    """Read back the published state. Never raises — a missing pet is just idle."""
+
+    path = state_path(home)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"skin": "whale", "state": "idle", "epoch_ms": 0}
+    if not isinstance(payload, dict):
+        return {"skin": "whale", "state": "idle", "epoch_ms": 0}
+    return payload
+
+
+def clear(home: Path | None = None) -> None:
+    """Remove the file so a stale state cannot outlive the process."""
+
+    state_path(home).unlink(missing_ok=True)

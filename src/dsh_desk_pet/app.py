@@ -1,137 +1,275 @@
-"""Always-on-top draggable companion window. Not an in-page DSH plugin."""
+"""The desktop window: a borderless, transparent, always-on-top companion.
+
+Deliberately not an in-page widget. The point of this plugin is a pet that sits
+*over* the DSH tab and every other window, the way the Codex pet and
+claw-on-desk do, which a `<div>` in the page can never do.
+
+Two constraints shape everything below:
+
+* macOS ships Tk 8.5. `PhotoImage` reads GIF and nothing else — no PNG, no
+  alpha channel, only a transparent palette index. `scripts/build_frames.py`
+  exists to satisfy exactly that.
+* A window can only be mapped where there is a window server. Under a sandbox
+  or over SSH, `deiconify()` blocks forever inside C. So the window is built
+  withdrawn, every risky call is guarded, and `--probe` never maps anything —
+  that is what makes this file assertable in a headless test.
+"""
 
 from __future__ import annotations
 
 import argparse
 import os
-import signal
-import subprocess
 import sys
 import time
 from pathlib import Path
 
+from . import bridge, packs
+from .anim import motion_for
 from .mapper import AgentActivity
 from .observer import observe_activity
-from .raster import render_png, render_ppm
 from .runtime import PetRuntime
-from .scene import CANVAS_H, CANVAS_W
-from .skins import DEFAULT_SKIN_ID, list_skins
+from .skins import DEFAULT_SKIN_ID, get_skin, list_skins
+
+# Room around the sprite so the breath and hop never clip at the window edge.
+MARGIN = 22
+FRAME_MS = 33
+POLL_MS = 600
+# Fallback plate colour if this Tk cannot do a transparent window.
+OPAQUE_BG = "#f4efe6"
+
+
+def now_ms() -> int:
+    return int(time.monotonic() * 1000)
 
 
 class DeskPetApp:
-    """Tk companion. Skin changes go through PetRuntime.set_skin — same as tests."""
+    """Tk companion. All state transitions go through PetRuntime, same as tests."""
 
-    def __init__(self, runtime: PetRuntime | None = None) -> None:
+    def __init__(self, runtime: PetRuntime | None = None, *, clock=now_ms) -> None:
         self.runtime = runtime or PetRuntime()
+        self.clock = clock
         self.painted_skin = ""
         self.painted_state = ""
+        self.painted_frame: Path | None = None
+        self.transparent = False
         self._root = None
+        self._canvas = None
+        self._sprite_id = None
         self._photo = None
-        self._image = None
-        self._drag = (0, 0)
-        self._poll_ms = 500
+        self._cache: dict[Path, object] = {}
+        self._drag_origin: tuple[int, int] | None = None
+        self._dragged = False
+        self._pointer_dx: float | None = None
+        self._published: tuple[str, str] | None = None
+        self.publish_state = True
 
-    def select_skin(self, skin_id: str) -> str:
-        """UI entry used by the picker chips and by --probe."""
+    # ---------------------------------------------------------------- window
 
-        state = self.runtime.set_skin(skin_id)
-        self.redraw()
-        return state
+    @property
+    def canvas_side(self) -> int:
+        return packs.frame_size() + MARGIN * 2
 
-    def apply_activity(self, activity: AgentActivity | None) -> str:
-        state = self.runtime.apply_activity(activity)
-        self.redraw()
-        return state
+    def _try(self, fn, *args, **kwargs) -> bool:
+        """Run an optional Tk call; report whether this build supports it."""
 
-    def _build(self) -> None:
+        import tkinter as tk
+
+        try:
+            fn(*args, **kwargs)
+            return True
+        except tk.TclError:
+            return False
+
+    def _build(self, *, mapped: bool = True) -> None:
         import tkinter as tk
 
         os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
-        # Force Aqua light chrome. Dark-mode Tk 8.5 leaves an empty black window
-        # and never paints the canvas.
-        os.environ.setdefault("NSRequiresAquaSystemAppearance", "1")
         root = tk.Tk()
+        root.withdraw()
         root.title("DSH Desk Pet")
+
+        side = self.canvas_side
+        # Primary display origin. Never winfo_screenwidth(): on a multi-monitor
+        # Mac that is the union of every display, which parks the pet off-screen.
+        root.geometry(f"{side}x{side}+120+160")
         root.resizable(False, False)
-        # Pin to the primary display origin. Do NOT use winfo_screenwidth():
-        # on a multi-monitor Mac that is the virtual desktop union.
-        root.geometry(f"{CANVAS_W}x{CANVAS_H + 40}+80+120")
-        root.attributes("-topmost", True)
-        root.lift()
-        root.after(200, lambda: (root.lift(), root.attributes("-topmost", True)))
-        try:
-            root.configure(bg="#f4efe6")
-            root.tk_setPalette(background="#f4efe6", foreground="#1a1a1a")
-        except tk.TclError:
-            pass
 
-        image = tk.Label(root, bg="#f4efe6", bd=0)
-        image.pack(side="top", fill="both", expand=True)
-        image.bind("<ButtonPress-1>", self._on_press)
-        image.bind("<B1-Motion>", self._on_drag)
+        borderless = self._try(root.overrideredirect, True)
+        # Order matters: on Aqua, dropping the chrome clears -topmost, so it has
+        # to be (re)set afterwards or the pet quietly sinks behind the browser.
+        self._try(root.attributes, "-topmost", True)
+        self.transparent = self._try(root.wm_attributes, "-transparent", True) and self._try(
+            root.configure, bg="systemTransparent"
+        )
+        bg = "systemTransparent" if self.transparent else OPAQUE_BG
+        if not self.transparent:
+            self._try(root.configure, bg=OPAQUE_BG)
+        if not borderless:
+            # Without a title bar there is nothing to close, so only drop the
+            # chrome when we actually got it.
+            self._try(root.wm_attributes, "-transparent", False)
 
-        picker = tk.Frame(root, bg="#f4efe6")
-        picker.pack(side="bottom", fill="x", pady=6)
-        colors = {
-            "whale": "#2f6feb",
-            "threadcore": "#d9822b",
-            "nautilus": "#b56b3a",
-            "jellyfish": "#7c5cbf",
-        }
-        for skin in list_skins():
-            btn = tk.Button(
-                picker,
-                text=" ",
-                bg=colors[skin.id],
-                activebackground=colors[skin.id],
-                width=2,
-                command=lambda skin_id=skin.id: self.select_skin(skin_id),
-            )
-            btn.pack(side="left", expand=True, padx=6)
+        canvas = tk.Canvas(root, width=side, height=side, highlightthickness=0, bd=0, takefocus=1)
+        if not self._try(canvas.configure, bg=bg):
+            self._try(canvas.configure, bg=OPAQUE_BG)
+        canvas.pack(fill="both", expand=True)
 
-        root.bind("<Escape>", lambda _event: root.destroy())
+        canvas.bind("<ButtonPress-1>", self._on_press)
+        canvas.bind("<B1-Motion>", self._on_drag)
+        canvas.bind("<ButtonRelease-1>", self._on_release)
+        canvas.bind("<Motion>", self._on_pointer)
+        canvas.bind("<Leave>", lambda _e: setattr(self, "_pointer_dx", None))
+        canvas.bind("<Button-2>", self._on_menu)
+        canvas.bind("<Button-3>", self._on_menu)
+        canvas.bind("<Control-Button-1>", self._on_menu)
+
+        root.bind("<Escape>", lambda _e: self.quit())
+        root.bind("<q>", lambda _e: self.quit())
+        for index, skin in enumerate(list_skins(), start=1):
+            root.bind(str(index), lambda _e, skin_id=skin.id: self.select_skin(skin_id))
+
         self._root = root
-        self._image = image
-        self.redraw()
+        self._canvas = canvas
+        self._menu = self._build_menu(root)
+        self.render(self.clock())
 
-    def _on_press(self, event) -> None:
-        if self._root is not None:
-            self._drag = (event.x_root - self._root.winfo_x(), event.y_root - self._root.winfo_y())
+        if mapped:
+            root.deiconify()
+            root.lift()
+            # Aqua drops topmost when another app takes focus; re-assert once.
+            root.after(300, lambda: self._try(root.attributes, "-topmost", True))
 
-    def _on_drag(self, event) -> None:
-        if self._root is None:
-            return
-        x = event.x_root - self._drag[0]
-        y = event.y_root - self._drag[1]
-        self._root.geometry(f"+{x}+{y}")
-
-    def redraw(self) -> None:
-        self.painted_skin = self.runtime.skin_id
-        self.painted_state = self.runtime.state
-        if self._image is None:
-            return
+    def _build_menu(self, root):
         import tkinter as tk
 
-        ppm = render_ppm(self.runtime.skin_id, self.runtime.state)
-        photo = None
+        menu = tk.Menu(root, tearoff=0)
+        for skin in list_skins():
+            menu.add_command(
+                label=f"{skin.name_zh} · {skin.name}",
+                command=lambda skin_id=skin.id: self.select_skin(skin_id),
+            )
+        menu.add_separator()
+        menu.add_command(label="退出 Quit", command=self.quit)
+        return menu
+
+    def _on_menu(self, event) -> None:
+        if self._menu is None:
+            return
         try:
-            photo = tk.PhotoImage(data=ppm)
-        except tk.TclError:
-            cache = Path.home() / ".dsh-desk-pet"
-            cache.mkdir(parents=True, exist_ok=True)
-            ppm_path = cache / f"{self.runtime.skin_id}-{self.runtime.state}.ppm"
-            ppm_path.write_bytes(ppm)
-            try:
-                photo = tk.PhotoImage(file=str(ppm_path))
-            except tk.TclError:
-                photo = None
-        if photo is None:
-            self._image.configure(text=f"{self.runtime.skin_id} / {self.runtime.state}", fg="#1a1a1a")
+            self._menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self._menu.grab_release()
+
+    # ------------------------------------------------------------ interaction
+
+    def _on_press(self, event) -> None:
+        if self._root is None:
+            return
+        self._dragged = False
+        self._drag_origin = (event.x_root - self._root.winfo_x(), event.y_root - self._root.winfo_y())
+
+    def _on_drag(self, event) -> None:
+        if self._root is None or self._drag_origin is None:
+            return
+        self._dragged = True
+        x = event.x_root - self._drag_origin[0]
+        y = event.y_root - self._drag_origin[1]
+        self._root.geometry(f"+{x}+{y}")
+
+    def _on_release(self, _event) -> None:
+        # A click that never moved is a poke, not a drag.
+        if not self._dragged:
+            self.runtime.poke(self.clock())
+        self._drag_origin = None
+
+    def _on_pointer(self, event) -> None:
+        self._pointer_dx = event.x - self.canvas_side / 2
+
+    # ---------------------------------------------------------------- drawing
+
+    def select_skin(self, skin_id: str) -> str:
+        """Picker entry. Changing skin must never change state."""
+
+        state = self.runtime.set_skin(skin_id)
+        self.render(self.clock())
+        return state
+
+    def apply_activity(self, activity: AgentActivity | None) -> str:
+        state = self.runtime.apply_activity(activity, self.clock())
+        self.render(self.clock())
+        return state
+
+    def _publish(self, at_ms: int) -> None:
+        """Mirror skin/state to disk for the in-page overlay, on change only."""
+
+        if not self.publish_state:
+            return
+        current = (self.painted_skin, self.painted_state)
+        if current == self._published:
+            return
+        try:
+            bridge.publish(self.painted_skin, self.painted_state, epoch_ms=at_ms)
+        except OSError:
+            # A read-only or full home must not take the window down with it.
+            self.publish_state = False
+            return
+        self._published = current
+
+    def _photo_for(self, path: Path):
+        import tkinter as tk
+
+        cached = self._cache.get(path)
+        if cached is None:
+            cached = tk.PhotoImage(file=str(path))
+            self._cache[path] = cached
+        return cached
+
+    def render(self, at_ms: int) -> None:
+        """Blit the frame this instant calls for, at the offset motion calls for."""
+
+        self.painted_skin = self.runtime.skin_id
+        self.painted_state = self.runtime.state
+        self._publish(at_ms)
+        loop = packs.loop_for(self.runtime.skin_id, self.runtime.state)
+        frame = loop.frame_at(self.runtime.state_elapsed_ms(at_ms))
+        self.painted_frame = frame
+        if self._canvas is None or frame is None:
+            return
+
+        motion = motion_for(
+            loop.resolved_state,
+            self.runtime.state_elapsed_ms(at_ms),
+            pointer_dx=self._pointer_dx,
+            half_width=self.canvas_side / 2,
+            hop_until_ms=self.runtime.hop_until_ms,
+            now_ms=at_ms,
+        )
+        centre = self.canvas_side / 2
+        x, y = centre + motion.dx, centre + motion.dy
+
+        photo = self._photo_for(frame)
+        self._photo = photo
+        if self._sprite_id is None:
+            self._sprite_id = self._canvas.create_image(x, y, image=photo)
         else:
-            self._photo = photo
-            self._image.configure(image=photo)
-        if self._root is not None:
-            self._root.update_idletasks()
+            self._canvas.itemconfigure(self._sprite_id, image=photo)
+            self._canvas.coords(self._sprite_id, x, y)
+
+    # ------------------------------------------------------------------ loops
+
+    def _frame_tick(self) -> None:
+        if self._root is None:
+            return
+        at = self.clock()
+        self.runtime.tick(at)
+        self.render(at)
+        self._root.after(FRAME_MS, self._frame_tick)
+
+    def _poll_tick(self) -> None:
+        if self._root is None:
+            return
+        self.runtime.apply_activity(observe_activity(), self.clock())
+        self._root.after(POLL_MS, self._poll_tick)
 
     def always_on_top(self) -> bool:
         if self._root is None:
@@ -141,84 +279,102 @@ class DeskPetApp:
         except Exception:
             return False
 
-    def _poll(self) -> None:
-        if self._root is None:
-            return
-        self.apply_activity(observe_activity())
-        self._root.after(self._poll_ms, self._poll)
-
-    def run(self, *, probe: bool = False, probe_skin: str = "threadcore") -> int:
-        if probe:
-            print("PROCESS_START=ok", flush=True)
-
-            def _on_term(_signum, _frame) -> None:
-                print("LAUNCH_ENV_FAIL=tk_create_timeout", flush=True)
-                os._exit(2)
-
-            signal.signal(signal.SIGTERM, _on_term)
-            # Separate process: Tk() can spin in C without releasing the GIL.
-            killer = subprocess.Popen(
-                [
-                    sys.executable,
-                    "-c",
-                    f"import os,signal,time; time.sleep(6); os.kill({os.getpid()}, signal.SIGTERM)",
-                ]
-            )
+    def quit(self) -> None:
+        if self._root is not None:
+            root, self._root = self._root, None
             try:
-                self._build()
-            except BaseException as exc:
-                print(f"LAUNCH_ENV_FAIL={type(exc).__name__}:{exc}", flush=True)
-                killer.kill()
-                return 2
-            killer.kill()
-            return self._run_probe(probe_skin)
-        self._build()
+                root.destroy()
+            except Exception:
+                pass
+        if self.publish_state:
+            # Otherwise the page overlay keeps animating a pet that is gone.
+            try:
+                bridge.clear()
+            except OSError:
+                pass
+
+    def run(self) -> int:
+        self._build(mapped=True)
         assert self._root is not None
-        self._root.after(self._poll_ms, self._poll)
+        self._root.after(FRAME_MS, self._frame_tick)
+        self._root.after(POLL_MS, self._poll_tick)
         self._root.mainloop()
         return 0
 
-    def _run_probe(self, probe_skin: str) -> int:
+    # ------------------------------------------------------------------ probe
+
+    def probe(self, probe_skin: str = "threadcore") -> int:
+        """Build the window without mapping it and report what it would paint.
+
+        Never calls `deiconify`: mapping is the one Tk operation that blocks
+        forever when there is no window server, and this has to stay runnable
+        in CI and under a sandbox.
+        """
+
+        self._build(mapped=False)
         assert self._root is not None
-        self._root.update()
-        topmost = self.always_on_top()
-        print(f"ALWAYS_ON_TOP={1 if topmost else 0}")
+        base = self.clock()
+
+        print(f"BORDERLESS={1 if self._root.overrideredirect() else 0}")
+        print(f"TRANSPARENT={1 if self.transparent else 0}")
+        print(f"ALWAYS_ON_TOP={1 if self.always_on_top() else 0}")
+        print(f"WINDOW={self.canvas_side}x{self.canvas_side}")
         print(f"DEFAULT_SKIN={self.painted_skin}")
         print(f"STATE={self.painted_state}")
-        print(f"WINDOW={self._root.winfo_width()}x{self._root.winfo_height()}")
-        before_state = self.runtime.state
-        new_state = self.select_skin(probe_skin)
-        self._root.update()
+        print(f"FRAME={self.painted_frame.name if self.painted_frame else 'none'}")
+
+        # Sample one idle cycle: a live pet must not paint the same frame forever.
+        seen = set()
+        for offset in range(0, 3200, 80):
+            self.render(base + offset)
+            if self.painted_frame:
+                seen.add(self.painted_frame.name)
+        print(f"IDLE_DISTINCT_FRAMES={len(seen)}")
+
+        before = self.runtime.state
+        after = self.select_skin(probe_skin)
         print(f"SKIN_AFTER={self.painted_skin}")
-        print(f"STATE_AFTER={self.painted_state}")
-        print(f"STATE_UNCHANGED={1 if new_state == before_state else 0}")
-        self._root.update()
-        time.sleep(0.15)
-        self._root.destroy()
-        return 0 if topmost and self.painted_skin == probe_skin else 1
+        print(f"STATE_UNCHANGED={1 if after == before else 0}")
 
+        inventory = packs.pack_inventory()
+        missing = [
+            f"{skin}/{state}"
+            for skin, states in inventory.items()
+            for state, count in states.items()
+            if count == 0 and state in ("idle", "working", "waiting", "error")
+        ]
+        print(f"PACK_SKINS={len(inventory)}")
+        print(f"MISSING_CORE_PACKS={','.join(missing) if missing else 'none'}")
 
-def export_png(path: Path, skin_id: str, state: str) -> None:
-    path.write_bytes(render_png(skin_id, state))
+        ok = (
+            self.painted_skin == probe_skin
+            and self.always_on_top()
+            and len(seen) >= 2
+            and not missing
+        )
+        self.quit()
+        return 0 if ok else 1
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Always-on-top DSH desktop pet")
-    parser.add_argument("--probe", action="store_true", help="create the window, print diagnostics, exit")
+    parser.add_argument("--probe", action="store_true", help="build without mapping, print diagnostics, exit")
     parser.add_argument("--probe-skin", default="threadcore", help="skin the probe switches to")
-    parser.add_argument("--export-png", metavar="PATH", help="write a PNG of skin+state and exit")
     parser.add_argument("--skin", default=DEFAULT_SKIN_ID, help="starting skin id")
-    parser.add_argument("--state", default="idle", help="starting state (idle/working/waiting/error)")
+    parser.add_argument("--state", default="idle", help="starting state")
+    parser.add_argument("--inventory", action="store_true", help="print the frame inventory and exit")
     args = parser.parse_args(argv)
 
-    if args.export_png:
-        export_png(Path(args.export_png), args.skin, args.state)
-        print(f"WROTE={args.export_png} SKIN={args.skin} STATE={args.state}")
+    if args.inventory:
+        for skin, states in packs.pack_inventory().items():
+            counts = " ".join(f"{state}={count}" for state, count in states.items())
+            print(f"{skin:12s} {counts}")
         return 0
 
+    get_skin(args.skin)
     runtime = PetRuntime(skin_id=args.skin, state=args.state)  # type: ignore[arg-type]
     app = DeskPetApp(runtime)
-    return app.run(probe=args.probe, probe_skin=args.probe_skin)
+    return app.probe(args.probe_skin) if args.probe else app.run()
 
 
 if __name__ == "__main__":

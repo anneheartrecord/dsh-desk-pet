@@ -26,6 +26,8 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "assets/skins",
+    "assets/web",
     "bin",
     "plugin",
     "src",
