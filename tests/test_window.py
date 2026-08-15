@@ -36,7 +36,7 @@ class WindowTests(unittest.TestCase):
         self.addCleanup(self.app.quit)
 
     def test_window_is_borderless_transparent_and_topmost(self) -> None:
-        self.assertTrue(self.app._root.overrideredirect(), "pet still has window chrome")
+        self.assertTrue(self.app.borderless, "pet still has window chrome")
         self.assertTrue(self.app.always_on_top(), "pet will sink behind the browser")
         self.assertTrue(self.app.transparent, "pet is painted on an opaque plate")
 

@@ -76,6 +76,11 @@ MAX_BASELINE_SPREAD_PX = 14
 # Within one skin, across its states. Poses legitimately differ, so this is
 # looser than the cross-skin bound — but it is the one users actually see.
 MAX_WITHIN_SKIN_SPREAD_PX = 20
+# Props smaller than this are noise (a stray keyed pixel), not a glyph.
+MIN_ACCESSORY_PX = 120
+# How much of the loop's largest prop mass the weakest frame must keep. A ZZZ
+# that shrinks is fine; one that vanishes is a flicker.
+MIN_ACCESSORY_RETENTION = 0.20
 
 
 def _rgba(path: Path) -> tuple[bytes, int, int]:
@@ -215,6 +220,40 @@ def interior_holes(
     return count, largest, total
 
 
+def accessory_mass(mask: bytearray, w: int, h: int) -> int:
+    """Opaque pixels outside the largest connected blob.
+
+    The body is one component; a ZZZ, a question mark, a held tool, sparkles are
+    others. Tracking their combined mass across a loop catches a whole class of
+    failure the coverage checks cannot see: a glyph drawn as a thin outline
+    survives the key at full resolution and then disappears entirely in the
+    downscale, so a prop present in two frames of a loop strobes off in the
+    third. Body coverage barely moves, so nothing else here notices.
+    """
+
+    seen = bytearray(w * h)
+    sizes = []
+    for start in range(w * h):
+        if not mask[start] or seen[start]:
+            continue
+        size = 0
+        seen[start] = 1
+        stack = [start]
+        while stack:
+            i = stack.pop()
+            size += 1
+            x, y = i % w, i // w
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if 0 <= nx < w and 0 <= ny < h:
+                    j = ny * w + nx
+                    if mask[j] and not seen[j]:
+                        seen[j] = 1
+                        stack.append(j)
+        sizes.append(size)
+    sizes.sort(reverse=True)
+    return sum(sizes[1:])
+
+
 def bbox(mask: bytearray, w: int, h: int) -> tuple[int, int, int, int] | None:
     x0, y0, x1, y1 = w, h, -1, -1
     for y in range(h):
@@ -241,6 +280,7 @@ def inspect(path: Path, key: tuple[int, int, int] | None = None) -> dict:
         "largest_hole": largest,
         "hole_px": total,
         "plate_px": plate_pixels(raw, mask, w, h, key) if key else 0,
+        "accessory_px": accessory_mass(mask, w, h),
         "bbox": bbox(mask, w, h),
     }
 
@@ -264,7 +304,7 @@ def _keys_from_manifest() -> dict[str, tuple[int, int, int]]:
 
 
 def collect() -> dict:
-    report: dict = {"frames": {}, "failures": []}
+    report: dict = {"frames": {}, "failures": [], "warnings": []}
     baselines: dict[str, list[int]] = {}
     keys = _keys_from_manifest()
 
@@ -318,6 +358,25 @@ def collect() -> dict:
                 f"{skin}/{state}: body area swings {min(covers):.0%}->{max(covers):.0%} across the loop"
             )
 
+        # A prop that exists in most frames of a loop and collapses in one is a
+        # strobe — a ZZZ drawn as a thin outline survives the key at full
+        # resolution and then dissolves in the downscale.
+        #
+        # A warning, not a failure, because detachment and absence look the
+        # same here: a tear flying free is its own component, the same tear
+        # resting on a cheek is part of the body, and both are correct art.
+        # Worth surfacing and worth a human glance; not worth blocking on.
+        props = [
+            e["accessory_px"] for e in report["frames"].values()
+            if e["skin"] == skin and e["state"] == state
+        ]
+        if len(props) > 1 and max(props) > MIN_ACCESSORY_PX:
+            if min(props) < max(props) * MIN_ACCESSORY_RETENTION:
+                report["warnings"].append(
+                    f"{skin}/{state}: detached prop mass drops {max(props)}px -> {min(props)}px "
+                    f"across the loop; check it is merging with the body rather than vanishing"
+                )
+
     if baselines:
         per_skin = {skin: sum(v) / len(v) for skin, v in baselines.items()}
         spread = max(per_skin.values()) - min(per_skin.values())
@@ -362,6 +421,10 @@ def main() -> int:
     if report.get("baselines"):
         print(f"\n  baselines: {report['baselines']}  cross-skin spread={report['baseline_spread']}px")
         print(f"  within-skin spread: {report.get('baseline_within_skin')}")
+    if report.get("warnings"):
+        print(f"\n{len(report['warnings'])} warning(s):")
+        for line in report["warnings"]:
+            print(f"  ~ {line}")
     if report["failures"]:
         print(f"\n{len(report['failures'])} problem(s):")
         for line in report["failures"]:

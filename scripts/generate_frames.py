@@ -148,8 +148,11 @@ POSES: dict[str, dict[str, str]] = {
         ),
         "01": (
             "The same slumped sleeping pose on a deeper breath: body settled a little lower and "
-            "wider still, head drooped slightly further, eyes still closed, the ZZZ letters "
-            "drifted higher and fainter."
+            "wider still, head drooped slightly further, eyes still closed. The ZZZ letters have "
+            "drifted a little higher and must stay BOLD and SOLID — thick filled letters of the "
+            "same size and weight as the reference, not thin outlines and not faded. They are "
+            "scaled down by more than half in the final art, so anything drawn as a fine line "
+            "disappears completely."
         ),
         "02": (
             "The same slumped sleeping pose at the top of a breath in: body drawn a little taller "

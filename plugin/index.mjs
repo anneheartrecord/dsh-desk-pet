@@ -52,12 +52,33 @@ function safeJoin(root, relative) {
 
 export function apply(ctx) {
   const python = process.platform === 'darwin' ? '/usr/bin/python3' : 'python3'
-  const child = spawn(python, [LAUNCHER], { cwd: ROOT, detached: false, stdio: 'ignore' })
+  // Declared before the exit handler that closes over it, so the ordering is
+  // obvious rather than merely correct-by-timing.
+  let stopping = false
+  // Pipe rather than ignore: the pet prints the reason it declined to start
+  // (another instance already running) and any traceback, and with 'ignore'
+  // both vanish. A desktop pet that silently fails to appear is impossible to
+  // tell apart from one that is merely invisible.
+  const child = spawn(python, [LAUNCHER], { cwd: ROOT, detached: false, stdio: ['ignore', 'pipe', 'pipe'] })
+  let tail = ''
+  const collect = (chunk) => {
+    tail = (tail + chunk.toString()).slice(-2000)
+  }
+  child.stdout?.on('data', collect)
+  child.stderr?.on('data', collect)
   child.on('error', (err) => {
     ctx.logger?.warn?.(`[dsh-desk-pet] desktop companion did not start: ${err.message}`)
   })
+  child.on('exit', (code, signal) => {
+    // SIGTERM is us shutting it down on plugin teardown; anything else means
+    // the pet is gone and the user should be able to find out why.
+    if (signal === 'SIGTERM' || stopping) return
+    const why = tail.trim() || `exit code ${code}`
+    ctx.logger?.warn?.(`[dsh-desk-pet] desktop companion exited: ${why}`)
+  })
 
   const stop = () => {
+    stopping = true
     if (child.killed || child.exitCode != null) return
     child.kill()
   }

@@ -171,8 +171,8 @@
       "crop_relative": [
         0.0742,
         0.1621,
-        0.918,
-        0.8496
+        0.9004,
+        0.8311
       ],
       "keys": {
         "error/00": "0xF905DE",
@@ -185,7 +185,7 @@
         "idle/01": "0xF605E4",
         "idle/02": "0xF804F3",
         "sleeping/00": "0xF20BE0",
-        "sleeping/01": "0xE713D5",
+        "sleeping/01": "0xEC07D6",
         "sleeping/02": "0xEA07D7",
         "waiting/00": "0xF406E7",
         "waiting/01": "0xF608E1",
@@ -335,9 +335,9 @@
     },
     "threadcore": {
       "crop_relative": [
-        0.084,
+        0.0889,
         0.125,
-        0.873,
+        0.8672,
         0.8652
       ],
       "keys": {
@@ -351,7 +351,7 @@
         "idle/01": "0xF50BE4",
         "idle/02": "0xF610E1",
         "sleeping/00": "0xF407D0",
-        "sleeping/01": "0xEB11C9",
+        "sleeping/01": "0xF005CC",
         "sleeping/02": "0xED0DC5",
         "waiting/00": "0xF809DA",
         "waiting/01": "0xF50FF0",
@@ -504,7 +504,7 @@
         0.1113,
         0.1426,
         0.9258,
-        0.8574
+        0.8506
       ],
       "keys": {
         "error/00": "0xF802EF",
@@ -517,7 +517,7 @@
         "idle/01": "0xF804E4",
         "idle/02": "0xF606E1",
         "sleeping/00": "0xED0DD9",
-        "sleeping/01": "0xE512CA",
+        "sleeping/01": "0xE60ECF",
         "sleeping/02": "0xE90ED4",
         "waiting/00": "0xFA02F0",
         "waiting/01": "0xF405F1",

@@ -24,7 +24,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import bridge, packs, prefs as prefs_store
+from . import bridge, macwindow, packs, prefs as prefs_store
 from .anim import motion_for
 from .mapper import AgentActivity
 from .observer import observe_activity
@@ -75,6 +75,8 @@ class DeskPetApp:
         self.painted_state = ""
         self.painted_frame: Path | None = None
         self.transparent = False
+        self.borderless = False
+        self.above_fullscreen = False
         self._root = None
         self._canvas = None
         self._sprite_id = None
@@ -151,6 +153,31 @@ class DeskPetApp:
         except tk.TclError:
             return False
 
+    def _drop_chrome(self, root) -> bool:
+        """Remove the title bar the way macOS Tk actually supports.
+
+        `overrideredirect(True)` is the portable answer and the wrong one here:
+        measured on this machine, a window with it set never renders at all,
+        and combined with `-transparent` neither does its title bar. Aqua's own
+        route is `::tk::unsupported::MacWindowStyle`, which asks AppKit for a
+        chrome-less window class rather than telling the window manager to look
+        away — the difference between a window Aqua knows how to draw and one
+        it does not.
+
+        Returns whether the chrome actually came off, so the caller can decide
+        whether it is safe to also go transparent.
+        """
+
+        for style in (("help", "none"), ("plain", "none"), ("utility", "none")):
+            try:
+                root.tk.call("::tk::unsupported::MacWindowStyle", "style", root._w, *style)
+                return True
+            except Exception:
+                continue
+        # Portable fallback for non-Aqua Tk, where overrideredirect is the only
+        # option and does behave.
+        return self._try(root.overrideredirect, True)
+
     def _build(self, *, mapped: bool = True) -> None:
         import tkinter as tk
 
@@ -167,7 +194,10 @@ class DeskPetApp:
         root.geometry(f"{side}x{side}+{x}+{y}")
         root.resizable(False, False)
 
-        borderless = not self.force_opaque and self._try(root.overrideredirect, True)
+        # Recorded rather than read back: MacWindowStyle leaves no attribute to
+        # query, and `overrideredirect()` now answers for a mechanism we no
+        # longer use.
+        borderless = self.borderless = not self.force_opaque and self._drop_chrome(root)
         # Order matters: on Aqua, dropping the chrome clears -topmost, so it has
         # to be (re)set afterwards or the pet quietly sinks behind the browser.
         self._try(root.attributes, "-topmost", True)
@@ -179,10 +209,14 @@ class DeskPetApp:
         bg = "systemTransparent" if self.transparent else OPAQUE_BG
         if not self.transparent:
             self._try(root.configure, bg=OPAQUE_BG)
-        if not borderless:
-            # Without a title bar there is nothing to close, so only drop the
-            # chrome when we actually got it.
+        if not borderless and self.transparent:
+            # A transparent window with a title bar renders as a floating title
+            # bar and nothing else — observed. If the chrome would not come off,
+            # stay opaque rather than ship that.
             self._try(root.wm_attributes, "-transparent", False)
+            self._try(root.configure, bg=OPAQUE_BG)
+            self.transparent = False
+            bg = OPAQUE_BG
 
         canvas = tk.Canvas(root, width=side, height=side, highlightthickness=0, bd=0, takefocus=1)
         if not self._try(canvas.configure, bg=bg):
@@ -373,17 +407,26 @@ class DeskPetApp:
     # ------------------------------------------------------------------ loops
 
     def _topmost_tick(self) -> None:
-        """Keep re-asserting always-on-top.
+        """Keep re-asserting always-on-top, and stay above fullscreen Spaces.
 
         Aqua quietly drops the level whenever another application takes focus,
         so a single assert at startup leaves the pet sinking behind the browser
         the first time you click it. The reference desk pet runs the same
         watchdog for the same reason.
+
+        Tk's `-topmost` alone only reaches ordinary windows. `macwindow` raises
+        the NSWindow to the assistive-technology level and lets it join every
+        Space, which is what puts the pet over a fullscreen video or editor. It
+        has to be re-applied here rather than once at startup: the collection
+        behaviour survives, but the level does not always survive a Space
+        change. If it is unavailable the call is a no-op and we keep plain
+        always-on-top.
         """
 
         if self._root is None:
             return
         self._try(self._root.attributes, "-topmost", True)
+        self.above_fullscreen = macwindow.float_above_fullscreen() > 0
         self._root.after(TOPMOST_MS, self._topmost_tick)
 
     def _user_idle_ms(self, at_ms: int) -> int | None:
@@ -500,8 +543,9 @@ class DeskPetApp:
         assert self._root is not None
         base = self.clock()
 
-        print(f"BORDERLESS={1 if self._root.overrideredirect() else 0}")
+        print(f"BORDERLESS={1 if self.borderless else 0}")
         print(f"TRANSPARENT={1 if self.transparent else 0}")
+        print(f"ABOVE_FULLSCREEN={1 if macwindow.available() else 0}")
         print(f"ALWAYS_ON_TOP={1 if self.always_on_top() else 0}")
         print(f"WINDOW={self.canvas_side}x{self.canvas_side}")
         print(f"DEFAULT_SKIN={self.painted_skin}")
@@ -574,8 +618,10 @@ def main(argv: list[str] | None = None) -> int:
             # Every DSH profile launches the plugin, so a second profile would
             # otherwise put a second pet on screen, both writing the same state
             # file and the page showing whichever wrote last.
+            # Non-zero: the plugin logs a non-zero exit, and "did not start" is
+            # exactly what the user needs to be told.
             print(f"a desk pet is already running (pid {running}); use --allow-second to override")
-            return 0
+            return 3
 
     saved = prefs_store.Prefs() if args.reset else prefs_store.load()
     if args.skin:
