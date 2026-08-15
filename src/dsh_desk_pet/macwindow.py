@@ -70,10 +70,22 @@ class _Objc:
         )
 
     def _bind(self, restype, argtypes):
-        fn = getattr(ctypes.cdll.LoadLibrary(_LIBOBJC), "objc_msgSend")
-        fn.restype = restype
-        fn.argtypes = argtypes
-        return fn
+        """Build an independently-typed view of `objc_msgSend`.
+
+        `getattr(lib, "objc_msgSend")` caches, so it hands back the *same*
+        function object every time — setting `restype`/`argtypes` on it just
+        overwrites whatever the previous signature was, and every earlier
+        binding silently starts using the last one. That is not a crash, it is
+        wrong arguments: `setLevel:` receiving a mangled value puts the window
+        at a level nothing can see, which is exactly how this failed.
+
+        Taking the symbol's address and declaring a CFUNCTYPE per signature
+        gives genuinely separate callables.
+        """
+
+        address = ctypes.cast(self._lib.objc_msgSend, ctypes.c_void_p).value
+        proto = ctypes.CFUNCTYPE(restype, *argtypes)
+        return proto(address)
 
     def cls(self, name: str) -> int | None:
         return self._lib.objc_getClass(name.encode())

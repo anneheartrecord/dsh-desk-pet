@@ -35,10 +35,23 @@ class WindowTests(unittest.TestCase):
         self.app._build(mapped=False)
         self.addCleanup(self.app.quit)
 
-    def test_window_is_borderless_transparent_and_topmost(self) -> None:
+    def test_window_is_borderless_and_topmost(self) -> None:
         self.assertTrue(self.app.borderless, "pet still has window chrome")
         self.assertTrue(self.app.always_on_top(), "pet will sink behind the browser")
-        self.assertTrue(self.app.transparent, "pet is painted on an opaque plate")
+
+    def test_transparency_is_off_unless_asked_for(self) -> None:
+        """Stock macOS Tk composites a transparent window body to nothing, so
+        the default has to be the one that is actually visible."""
+
+        self.assertFalse(self.app.transparent)
+
+    def test_transparency_can_be_opted_into(self) -> None:
+        app = DeskPetApp(PetRuntime(), transparent=True)
+        app.publish_state = False
+        app.save_prefs = False
+        self.addCleanup(app.quit)
+        app._build(mapped=False)
+        self.assertTrue(app.transparent, "--transparent did not take")
 
     def test_default_is_whale_idle(self) -> None:
         self.assertEqual(self.app.painted_skin, "whale")

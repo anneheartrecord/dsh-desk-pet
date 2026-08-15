@@ -35,19 +35,22 @@ Pet only, no DSH: clone the repo and run `./bin/dsh-desk-pet`.
 
 ## Known limits
 
-**Fullscreen apps cover it.** A macOS fullscreen app owns its own Space, and Tk
-offers only a boolean always-on-top — not the `screen-saver` window level an
-Electron pet can reach — so it cannot cross into that Space. The pet is hidden
-while you are in a fullscreen video or editor, and returns when you leave. That
-is Tk's ceiling, not a bug.
+**Fullscreen apps.** Tk offers only a boolean always-on-top, which cannot
+cross into the Space a macOS fullscreen app owns. So the plugin goes around Tk
+and talks to AppKit through the standard library's `ctypes`
+(`src/dsh_desk_pet/macwindow.py`): it raises the NSWindow to the
+assistive-technology level and lets it join every Space — the same mechanism
+an Electron pet uses, with nothing to install. Where that is unavailable it
+falls back to plain always-on-top, and fullscreen will cover the pet.
 
-**Can't see the pet?** A borderless transparent window is the most fragile
-rendering path there is. `--opaque` swaps it for a titled window on a solid
-background; if that one shows up, the problem is transparency compositing
-rather than the pet failing to start:
+**Why the pale plate?** Opaque is the measured default. On the Tk 8.5.9 that
+ships with macOS, `-transparent` composites the *entire* window body to
+nothing: Tk reports the window mapped, viewable, correctly positioned, with
+the sprite on its canvas, and a screenshot shows bare desktop. A cut-out looks
+better; an invisible pet is not a pet. Opt back in if your Tk manages it:
 
 ```bash
-./bin/dsh-desk-pet --opaque
+./bin/dsh-desk-pet --transparent
 ```
 
 ## Use

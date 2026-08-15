@@ -57,14 +57,16 @@ class DeskPetApp:
         *,
         clock=now_ms,
         prefs: prefs_store.Prefs | None = None,
-        opaque: bool = False,
+        transparent: bool = False,
     ) -> None:
-        # Escape hatch. A borderless transparent window is the right look, but
-        # it is also the configuration with the most ways to render as nothing
-        # at all on an unfamiliar macOS build — and a pet you cannot see gives
-        # you no way to tell "broken" from "invisible". `--opaque` trades the
-        # look for a window that is unmistakably there.
-        self.force_opaque = opaque
+        # Opaque by default, and that is a measured decision rather than a
+        # timid one. On the Tk 8.5.9 that ships with macOS, `-transparent`
+        # composites the *entire* window body to nothing — Tk reports the
+        # window mapped, viewable, on-screen, with the sprite on its canvas,
+        # and a screenshot shows bare desktop. A transparent cut-out is the
+        # nicer look; an invisible pet is not a pet. `--transparent` opts back
+        # in for builds where it works.
+        self.want_transparent = transparent
         self.prefs = (prefs or prefs_store.Prefs()).clamped()
         self.clock = clock
         # Seed from the same clock the app runs on. A runtime starting at t=0
@@ -197,26 +199,22 @@ class DeskPetApp:
         # Recorded rather than read back: MacWindowStyle leaves no attribute to
         # query, and `overrideredirect()` now answers for a mechanism we no
         # longer use.
-        borderless = self.borderless = not self.force_opaque and self._drop_chrome(root)
+        # Chrome comes off either way: a borderless opaque window is a small
+        # tile of the plate colour, which reads as a pet on a card. A *titled*
+        # window is a dialog box with an animal in it.
+        borderless = self.borderless = self._drop_chrome(root)
         # Order matters: on Aqua, dropping the chrome clears -topmost, so it has
         # to be (re)set afterwards or the pet quietly sinks behind the browser.
         self._try(root.attributes, "-topmost", True)
         self.transparent = (
-            not self.force_opaque
+            self.want_transparent
+            and borderless
             and self._try(root.wm_attributes, "-transparent", True)
             and self._try(root.configure, bg="systemTransparent")
         )
         bg = "systemTransparent" if self.transparent else OPAQUE_BG
         if not self.transparent:
             self._try(root.configure, bg=OPAQUE_BG)
-        if not borderless and self.transparent:
-            # A transparent window with a title bar renders as a floating title
-            # bar and nothing else — observed. If the chrome would not come off,
-            # stay opaque rather than ship that.
-            self._try(root.wm_attributes, "-transparent", False)
-            self._try(root.configure, bg=OPAQUE_BG)
-            self.transparent = False
-            bg = OPAQUE_BG
 
         canvas = tk.Canvas(root, width=side, height=side, highlightthickness=0, bd=0, takefocus=1)
         if not self._try(canvas.configure, bg=bg):
@@ -361,7 +359,11 @@ class DeskPetApp:
 
         cached = self._cache.get(path)
         if cached is None:
-            cached = tk.PhotoImage(file=str(path))
+            # Bound to *our* root, not Tk's implicit default. Without master a
+            # second app in the same process builds its images against the first
+            # one's interpreter, and the canvas then reports the image does not
+            # exist.
+            cached = tk.PhotoImage(file=str(path), master=self._root)
             if self.sprite_side != packs.frame_size():
                 # subsample is nearest-neighbour and integer-only, but it is the
                 # only resize Tk 8.5 offers without a second art pack.
@@ -593,9 +595,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--state", default="idle", help="starting state")
     parser.add_argument("--small", action="store_true", help="draw at half size")
     parser.add_argument(
-        "--opaque",
+        "--transparent",
         action="store_true",
-        help="titled window on a solid background — use if the pet is invisible",
+        help="cut-out window with no plate; invisible on stock macOS Tk 8.5",
     )
     parser.add_argument("--reset", action="store_true", help="forget saved position, size and skin")
     parser.add_argument("--inventory", action="store_true", help="print the frame inventory and exit")
@@ -636,7 +638,7 @@ def main(argv: list[str] | None = None) -> int:
     # platforms where that is boot-relative sails straight past SLEEP_AFTER_MS
     # and the pet launches already asleep.
     runtime = PetRuntime(skin_id=saved.skin_id, state=args.state, now_ms=now_ms())  # type: ignore[arg-type]
-    app = DeskPetApp(runtime, prefs=saved, opaque=args.opaque)
+    app = DeskPetApp(runtime, prefs=saved, transparent=args.transparent)
     return app.probe(args.probe_skin) if args.probe else app.run()
 
 

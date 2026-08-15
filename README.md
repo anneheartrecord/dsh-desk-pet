@@ -32,12 +32,12 @@ dsh web
 
 ## 已知限制
 
-**全屏 app 会盖住它。** macOS 的全屏应用独占一个 Space，而 Tk 只能设置布尔的「置顶」，拿不到 Electron 那种 `screen-saver` 窗口层级——跨不过 Space。看全屏视频或全屏写代码时它不会出现，退出全屏就回来。这是 Tk 的天花板，不是 bug。
+**全屏 app。** Tk 自己只有布尔的「置顶」，跨不过 macOS 全屏应用独占的 Space。所以本插件绕过 Tk，用标准库 `ctypes` 直接调 AppKit（`src/dsh_desk_pet/macwindow.py`）：把 NSWindow 提到辅助功能层级，并设成可加入所有 Space——和 Electron 桌宠同一套机制，只是不需要装任何依赖。调不通的机器会自动退回普通置顶，那时全屏会盖住它。
 
-**看不见宠物？** 无边框透明窗是渲染路径最脆弱的一种配置。加 `--opaque` 换成带标题栏的实心窗口——如果这样能看见，说明是透明合成的问题而不是宠物没跑起来：
+**为什么有个浅色底板？** 默认不透明是实测后的选择。macOS 自带的 Tk 8.5.9 上，`-transparent` 会把**整个窗体**合成为空——Tk 报告窗口已映射、可见、坐标正确、精灵在画布上，截图里却是一片空桌面。镂空更好看，但看不见的宠物不是宠物。你的 Tk 支持的话可以开回来：
 
 ```bash
-./bin/dsh-desk-pet --opaque
+./bin/dsh-desk-pet --transparent
 ```
 
 ## 使用
