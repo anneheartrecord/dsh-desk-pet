@@ -4,29 +4,29 @@
     "jellyfish": {
       "crop_relative": [
         0.0781,
-        0.1025,
-        0.917,
+        0.0996,
+        0.916,
         0.916
       ],
       "keys": {
-        "error/00": "0xFB05E9",
+        "error/00": "0xFB05E8",
         "error/01": "0xF00CED",
-        "error/02": "0xF404D7",
+        "error/02": "0xF504D7",
         "happy/00": "0xF603E2",
         "happy/01": "0xF409E6",
-        "happy/02": "0xEB02D3",
-        "idle/00": "0xF805EA",
+        "happy/02": "0xEB02D2",
+        "idle/00": "0xF805E9",
         "idle/01": "0xF305EC",
         "idle/02": "0xF810E5",
         "sleeping/00": "0xF20DE2",
         "sleeping/01": "0xE90CD6",
         "sleeping/02": "0xE813D5",
-        "waiting/00": "0xF604EC",
+        "waiting/00": "0xF604EB",
         "waiting/01": "0xF406E3",
-        "waiting/02": "0xEA08E3",
-        "working/00": "0xF609EC",
+        "waiting/02": "0xEA07E2",
+        "working/00": "0xF609EB",
         "working/01": "0xF005DE",
-        "working/02": "0xEE0DDE"
+        "working/02": "0xEE0DDD"
       },
       "states": {
         "error": [
@@ -170,29 +170,29 @@
     "nautilus": {
       "crop_relative": [
         0.0742,
-        0.1611,
-        0.9189,
+        0.1621,
+        0.918,
         0.8496
       ],
       "keys": {
         "error/00": "0xF905DE",
         "error/01": "0xF407DE",
         "error/02": "0xF005D2",
-        "happy/00": "0xF506E5",
-        "happy/01": "0xF20CDE",
+        "happy/00": "0xF606E5",
+        "happy/01": "0xF30CDE",
         "happy/02": "0xF005D9",
-        "idle/00": "0xF50BE6",
+        "idle/00": "0xF50AE6",
         "idle/01": "0xF605E4",
         "idle/02": "0xF804F3",
-        "sleeping/00": "0xF20BE1",
+        "sleeping/00": "0xF20BE0",
         "sleeping/01": "0xE713D5",
         "sleeping/02": "0xEA07D7",
-        "waiting/00": "0xF406E8",
+        "waiting/00": "0xF406E7",
         "waiting/01": "0xF608E1",
-        "waiting/02": "0xEB12DD",
+        "waiting/02": "0xEB12DC",
         "working/00": "0xF806E4",
-        "working/01": "0xEF0CDB",
-        "working/02": "0xF00ADC"
+        "working/01": "0xEF0BDB",
+        "working/02": "0xF10ADC"
       },
       "states": {
         "error": [
@@ -335,13 +335,13 @@
     },
     "threadcore": {
       "crop_relative": [
-        0.0837,
-        0.126,
-        0.874,
-        0.8643
+        0.084,
+        0.125,
+        0.873,
+        0.8652
       ],
       "keys": {
-        "error/00": "0xF20AE9",
+        "error/00": "0xF209E9",
         "error/01": "0xF309E4",
         "error/02": "0xE909E2",
         "happy/00": "0xF609D8",
@@ -349,14 +349,14 @@
         "happy/02": "0xEC0BCC",
         "idle/00": "0xFB06D7",
         "idle/01": "0xF50BE4",
-        "idle/02": "0xF611E1",
+        "idle/02": "0xF610E1",
         "sleeping/00": "0xF407D0",
         "sleeping/01": "0xEB11C9",
         "sleeping/02": "0xED0DC5",
         "waiting/00": "0xF809DA",
-        "waiting/01": "0xF50FF1",
-        "waiting/02": "0xEC11CA",
-        "working/00": "0xF60BE1",
+        "waiting/01": "0xF50FF0",
+        "waiting/02": "0xED11CA",
+        "working/00": "0xF60BE0",
         "working/01": "0xEE0CD6",
         "working/02": "0xF30DDB"
       },
@@ -501,28 +501,28 @@
     },
     "whale": {
       "crop_relative": [
-        0.1123,
+        0.1113,
         0.1426,
         0.9258,
-        0.8564
+        0.8574
       ],
       "keys": {
-        "error/00": "0xF702F0",
-        "error/01": "0xF904E6",
-        "error/02": "0xEE07E5",
-        "happy/00": "0xF703EC",
-        "happy/01": "0xF203DD",
-        "happy/02": "0xEE03E0",
+        "error/00": "0xF802EF",
+        "error/01": "0xFA04E6",
+        "error/02": "0xEF07E4",
+        "happy/00": "0xF703EB",
+        "happy/01": "0xF202DD",
+        "happy/02": "0xEE03DF",
         "idle/00": "0xF608E8",
-        "idle/01": "0xF804E5",
+        "idle/01": "0xF804E4",
         "idle/02": "0xF606E1",
         "sleeping/00": "0xED0DD9",
-        "sleeping/01": "0xE512CB",
+        "sleeping/01": "0xE512CA",
         "sleeping/02": "0xE90ED4",
-        "waiting/00": "0xFA02F1",
+        "waiting/00": "0xFA02F0",
         "waiting/01": "0xF405F1",
-        "waiting/02": "0xF007E8",
-        "working/00": "0xFA05EA",
+        "waiting/02": "0xF006E8",
+        "working/00": "0xFA04EA",
         "working/01": "0xF705E0",
         "working/02": "0xF104DB"
       },
