@@ -32,6 +32,8 @@ const MANIFEST = path.join(ROOT, 'assets', 'skins', 'manifest.json')
 const STATE_FILE = path.join(os.homedir(), '.dsh-desk-pet', 'state.json')
 
 const IDLE_STATE = { skin: 'whale', state: 'idle', epoch_ms: 0 }
+// Must stay above the desktop pet's heartbeat (HEARTBEAT_MS in app.py).
+const STALE_AFTER_MS = 6000
 
 function sendJson(res, body, status = 200) {
   res.writeHead(status, {
@@ -69,7 +71,12 @@ export function apply(ctx) {
       try {
         const raw = await readFile(STATE_FILE, 'utf8')
         const parsed = JSON.parse(raw)
-        sendJson(res, { ...IDLE_STATE, ...parsed, live: true })
+        // The desktop pet rewrites this every couple of seconds. A file that
+        // has stopped moving is one a killed process left behind — without
+        // this check the page cheerfully animates a pet that no longer exists.
+        const age = Date.now() - (Number(parsed.wall_ms) || 0)
+        const live = Number.isFinite(age) && age >= 0 && age < STALE_AFTER_MS
+        sendJson(res, { ...IDLE_STATE, ...parsed, live })
       } catch {
         // No desktop pet running (or mid-write): a calm idle beats a 500.
         sendJson(res, { ...IDLE_STATE, live: false })
@@ -114,8 +121,16 @@ export function apply(ctx) {
     path: '/dsh-desk-pet/frames/',
     handler: async (req, res) => {
       if (req.method !== 'GET') return sendJson(res, { error: 'method not allowed' }, 405)
-      const rel = decodeURIComponent(new URL(req.url, 'http://x').pathname)
-        .slice('/dsh-desk-pet/frames/'.length)
+      let rel
+      try {
+        // A stray '%' makes decodeURIComponent throw, and an unhandled throw in
+        // an async handler is a rejected promise, not a response.
+        rel = decodeURIComponent(new URL(req.url, 'http://x').pathname)
+          .slice('/dsh-desk-pet/frames/'.length)
+      } catch {
+        res.writeHead(400)
+        return res.end()
+      }
       const file = safeJoin(WEB_ASSETS, rel)
       if (!file || !file.endsWith('.png') || !existsSync(file)) {
         res.writeHead(404)

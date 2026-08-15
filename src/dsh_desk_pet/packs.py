@@ -39,6 +39,9 @@ FALLBACK_STATE = {
     "error": "idle",
 }
 
+# A guard against half-written downloads, not a quality bar. Every real frame
+# the build emits is tens of KB; anything this small is a truncated file, and
+# loading one would crash Tk's GIF reader rather than just look wrong.
 MIN_FRAME_BYTES = 400
 
 
@@ -111,7 +114,8 @@ def _declared_timeline(skin_id: str, state: str) -> Timeline | None:
     return Timeline(steps) if steps else None
 
 
-def loop_for(skin_id: str, state: str, *, web: bool = False) -> FrameLoop:
+@lru_cache(maxsize=128)
+def _loop_cached(skin_id: str, state: str, web: bool) -> FrameLoop:
     resolved, frames = resolve_state(skin_id, state, web=web)
     timeline = _declared_timeline(skin_id, resolved) or auto_timeline(resolved, len(frames))
     return FrameLoop(
@@ -121,6 +125,24 @@ def loop_for(skin_id: str, state: str, *, web: bool = False) -> FrameLoop:
         frames=frames,
         timeline=timeline,
     )
+
+
+def loop_for(skin_id: str, state: str, *, web: bool = False) -> FrameLoop:
+    """Frames plus rhythm for a skin+state.
+
+    Cached: the renderer calls this thirty times a second, and uncached it does
+    a `glob` plus a `stat` per file on every frame — a directory scan at 30Hz
+    for a directory that only changes when someone reruns the build script.
+    """
+
+    return _loop_cached(skin_id, state, web)
+
+
+def reset_cache() -> None:
+    """Forget the manifest and every loaded loop. Call after rebuilding art."""
+
+    manifest.cache_clear()
+    _loop_cached.cache_clear()
 
 
 def frame_at(skin_id: str, state: str, elapsed_ms: int, *, web: bool = False) -> Path | None:

@@ -75,19 +75,31 @@ dsh plugin --profile web remove dsh-desk-pet
 
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -v   # 全套测试，无需窗口
+DSH_PET_ART_CHECK=1 /usr/bin/python3 -m unittest discover -s tests   # 连素材一起验（多约 10 秒）
 ./bin/dsh-desk-pet --probe                          # 不开窗，打印自检
 ./bin/dsh-desk-pet --inventory                      # 每套皮肤每个状态有几帧
+./bin/dsh-desk-pet --small --reset                  # 半尺寸，并忘掉已保存的位置
 ```
 
-### 加素材
+### 素材流水线
 
-原图放 `assets/source/<皮肤>/<状态>/NN.png`，纯色背景即可（每张自己什么底色都行，脚本按四角自动取样）。然后：
+三个脚本，按顺序跑：
 
 ```bash
-./scripts/build_frames.py          # 抠图、对齐、缩放，产出两套帧
+./scripts/generate_frames.py       # 用生图接口补齐缺的姿势（需要 ARTGEN__IMAGE_* 环境变量）
+./scripts/build_frames.py          # 抠底、对齐、缩放，产出两套帧
+./scripts/check_frames.py          # 逐像素体检
 ./scripts/contact_sheet.py         # 拼一张总览图，不开窗也能看效果
 ```
 
-`build_frames.py` 一份原图产出两套：`assets/skins/` 下的透明 GIF 给桌面窗（macOS 的 Tk 8.5 只认 GIF，不认 PNG），`assets/web/` 下的 RGBA PNG 给网页镜像。裁切框按**每套皮肤**统一算，所以切换状态时宠物不会跳、不会忽大忽小。
+**generate_frames** 从不凭空重画角色：每次请求都是拿一张已有的图做 image-to-image。文生图跨次调用锁不住身份，问两次会得到两只不同的鲸、两种配色、两种尺寸，切状态时角色就当场变形。状态的第一帧参考本套皮肤的 idle 静止姿势，第二帧参考**它自己的第一帧**——两帧循环要的是同一个姿势差一瞬间，不是两个不同姿势。
+
+**build_frames** 一份原图产出两套：`assets/skins/` 下的透明 GIF 给桌面窗（macOS 的 Tk 8.5 只认 GIF，不认 PNG），`assets/web/` 下的 RGBA PNG 给网页镜像。用 `colorkey` 而不是 `chromakey`——后者只比较色度、不看亮度，碰上水母那种低饱和底色会把角色的黑眼睛一起吃掉。抠完还会做一次洞填充：背景按定义就是「与画面边缘连通的透明区域」，四面被角色包住的透明区一律补回不透明。裁切框在**相对坐标**里按每套皮肤统一算（源图有 360/1024/1254 三种分辨率），并按身体底边对齐基线，所以换状态、换皮肤都不会跳。
+
+**check_frames** 是唯一会看像素的测试。其余测试只能比较文件名——水母曾经带着一脸窟窿通过全部测试。
 
 同一状态放两帧以上就会自动循环；`idle` 的第二帧当作闭眼帧，脚本会给它排一个长睁短闭的双眨节奏。
+
+### 自定义皮肤
+
+皮肤就是一个装帧的目录。只要 `assets/skins/<id>/<状态>/*.gif` 存在，它就会自动出现在右键菜单里，不用改代码。

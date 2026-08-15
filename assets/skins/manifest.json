@@ -2,33 +2,71 @@
   "frame_size": 200,
   "skins": {
     "jellyfish": {
-      "crop": [
-        22,
-        37,
-        297,
-        297
+      "crop_relative": [
+        0.1055,
+        0.0686,
+        0.8945,
+        0.916
       ],
-      "key": "0xA4F4CC",
+      "keys": {
+        "error/00": "0xA3F1CA",
+        "error/01": "0xA3ECC8",
+        "happy/00": "0x9EF1C8",
+        "happy/01": "0x9DEEC8",
+        "idle/00": "0xA4F4CC",
+        "idle/01": "0xA5F0CA",
+        "sleeping/00": "0xA3ECC7",
+        "sleeping/01": "0xA3EAC8",
+        "waiting/00": "0xA4EBC7",
+        "waiting/01": "0xA0EEC8",
+        "working/00": "0xA4F0CA",
+        "working/01": "0xA1EAC9"
+      },
       "states": {
         "error": [
-          "00.gif"
+          "00.gif",
+          "01.gif"
+        ],
+        "happy": [
+          "00.gif",
+          "01.gif"
         ],
         "idle": [
           "00.gif",
           "01.gif"
         ],
+        "sleeping": [
+          "00.gif",
+          "01.gif"
+        ],
         "waiting": [
-          "00.gif"
+          "00.gif",
+          "01.gif"
         ],
         "working": [
-          "00.gif"
+          "00.gif",
+          "01.gif"
         ]
       },
       "timelines": {
         "error": [
           [
             0,
-            400
+            900
+          ],
+          [
+            1,
+            220
+          ]
+        ],
+        "happy": [
+          [
+            0,
+            500
+          ],
+          [
+            1,
+            260
           ]
         ],
         "idle": [
@@ -49,48 +87,104 @@
             120
           ]
         ],
+        "sleeping": [
+          [
+            0,
+            1800
+          ],
+          [
+            1,
+            1800
+          ]
+        ],
         "waiting": [
           [
             0,
-            400
+            520
+          ],
+          [
+            1,
+            320
           ]
         ],
         "working": [
           [
             0,
-            400
+            260
+          ],
+          [
+            1,
+            260
           ]
         ]
       }
     },
     "nautilus": {
-      "crop": [
-        46,
-        34,
-        292,
-        292
+      "crop_relative": [
+        0.0723,
+        0.1611,
+        0.9014,
+        0.8369
       ],
-      "key": "0x01D42A",
+      "keys": {
+        "error/00": "0x08C434",
+        "error/01": "0x0EBF34",
+        "happy/00": "0x07D02D",
+        "happy/01": "0x08C731",
+        "idle/00": "0x01D42A",
+        "idle/01": "0x02CF2D",
+        "sleeping/00": "0x05CB30",
+        "sleeping/01": "0x10C034",
+        "waiting/00": "0x0EBD34",
+        "waiting/01": "0x0AC035",
+        "working/00": "0x01CF2B",
+        "working/01": "0x03C92D"
+      },
       "states": {
         "error": [
-          "00.gif"
+          "00.gif",
+          "01.gif"
+        ],
+        "happy": [
+          "00.gif",
+          "01.gif"
         ],
         "idle": [
           "00.gif",
           "01.gif"
         ],
+        "sleeping": [
+          "00.gif",
+          "01.gif"
+        ],
         "waiting": [
-          "00.gif"
+          "00.gif",
+          "01.gif"
         ],
         "working": [
-          "00.gif"
+          "00.gif",
+          "01.gif"
         ]
       },
       "timelines": {
         "error": [
           [
             0,
-            400
+            900
+          ],
+          [
+            1,
+            220
+          ]
+        ],
+        "happy": [
+          [
+            0,
+            500
+          ],
+          [
+            1,
+            260
           ]
         ],
         "idle": [
@@ -111,48 +205,104 @@
             120
           ]
         ],
+        "sleeping": [
+          [
+            0,
+            1800
+          ],
+          [
+            1,
+            1800
+          ]
+        ],
         "waiting": [
           [
             0,
-            400
+            520
+          ],
+          [
+            1,
+            320
           ]
         ],
         "working": [
           [
             0,
-            400
+            260
+          ],
+          [
+            1,
+            260
           ]
         ]
       }
     },
     "threadcore": {
-      "crop": [
-        28,
-        35,
-        299,
-        299
+      "crop_relative": [
+        0.1045,
+        0.1328,
+        0.8613,
+        0.8611
       ],
-      "key": "0x00E412",
+      "keys": {
+        "error/00": "0x01DC13",
+        "error/01": "0x07CF24",
+        "happy/00": "0x04D620",
+        "happy/01": "0x08DB1E",
+        "idle/00": "0x00E412",
+        "idle/01": "0x01DD14",
+        "sleeping/00": "0x07D521",
+        "sleeping/01": "0x07DD0E",
+        "waiting/00": "0x06D71E",
+        "waiting/01": "0x09DB15",
+        "working/00": "0x01DC14",
+        "working/01": "0x06DE18"
+      },
       "states": {
         "error": [
-          "00.gif"
+          "00.gif",
+          "01.gif"
+        ],
+        "happy": [
+          "00.gif",
+          "01.gif"
         ],
         "idle": [
           "00.gif",
           "01.gif"
         ],
+        "sleeping": [
+          "00.gif",
+          "01.gif"
+        ],
         "waiting": [
-          "00.gif"
+          "00.gif",
+          "01.gif"
         ],
         "working": [
-          "00.gif"
+          "00.gif",
+          "01.gif"
         ]
       },
       "timelines": {
         "error": [
           [
             0,
-            400
+            900
+          ],
+          [
+            1,
+            220
+          ]
+        ],
+        "happy": [
+          [
+            0,
+            500
+          ],
+          [
+            1,
+            260
           ]
         ],
         "idle": [
@@ -173,48 +323,104 @@
             120
           ]
         ],
+        "sleeping": [
+          [
+            0,
+            1800
+          ],
+          [
+            1,
+            1800
+          ]
+        ],
         "waiting": [
           [
             0,
-            400
+            520
+          ],
+          [
+            1,
+            320
           ]
         ],
         "working": [
           [
             0,
-            400
+            260
+          ],
+          [
+            1,
+            260
           ]
         ]
       }
     },
     "whale": {
-      "crop": [
-        65,
-        50,
-        257,
-        257
+      "crop_relative": [
+        0.1309,
+        0.0947,
+        0.8907,
+        0.8652
       ],
-      "key": "0x15D1F6",
+      "keys": {
+        "error/00": "0x17CFF3",
+        "error/01": "0x16CBF4",
+        "happy/00": "0x15CCF5",
+        "happy/01": "0x17C8F3",
+        "idle/00": "0x15D1F6",
+        "idle/01": "0x17CFF3",
+        "sleeping/00": "0x05CCFB",
+        "sleeping/01": "0x0ECAF6",
+        "waiting/00": "0x1ACCF5",
+        "waiting/01": "0x14C6F3",
+        "working/00": "0x16CEF2",
+        "working/01": "0x1AC8F3"
+      },
       "states": {
         "error": [
-          "00.gif"
+          "00.gif",
+          "01.gif"
+        ],
+        "happy": [
+          "00.gif",
+          "01.gif"
         ],
         "idle": [
           "00.gif",
           "01.gif"
         ],
+        "sleeping": [
+          "00.gif",
+          "01.gif"
+        ],
         "waiting": [
-          "00.gif"
+          "00.gif",
+          "01.gif"
         ],
         "working": [
-          "00.gif"
+          "00.gif",
+          "01.gif"
         ]
       },
       "timelines": {
         "error": [
           [
             0,
-            400
+            900
+          ],
+          [
+            1,
+            220
+          ]
+        ],
+        "happy": [
+          [
+            0,
+            500
+          ],
+          [
+            1,
+            260
           ]
         ],
         "idle": [
@@ -235,16 +441,34 @@
             120
           ]
         ],
+        "sleeping": [
+          [
+            0,
+            1800
+          ],
+          [
+            1,
+            1800
+          ]
+        ],
         "waiting": [
           [
             0,
-            400
+            520
+          ],
+          [
+            1,
+            320
           ]
         ],
         "working": [
           [
             0,
-            400
+            260
+          ],
+          [
+            1,
+            260
           ]
         ]
       }

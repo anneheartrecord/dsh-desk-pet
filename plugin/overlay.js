@@ -15,12 +15,23 @@
 
   var BASE = "/dsh-desk-pet";
   var POLL_MS = 700;
-  var SKINS = [
-    { id: "whale", color: "#2f6feb", label: "鲸 Whale" },
-    { id: "threadcore", color: "#d9822b", label: "线核 Threadcore" },
-    { id: "nautilus", color: "#b56b3a", label: "鹦鹉螺 Nautilus" },
-    { id: "jellyfish", color: "#7c5cbf", label: "水母 Jellyfish" },
-  ];
+  // Dot colours for the shipped skins. Anything else discovered in the
+  // manifest — a skin generated from a user's own photo, say — still gets a
+  // dot, just a neutral one, so the overlay never has to be edited to
+  // acknowledge a new skin exists.
+  var SKIN_COLORS = {
+    whale: "#2f6feb",
+    threadcore: "#d9822b",
+    nautilus: "#b56b3a",
+    jellyfish: "#7c5cbf",
+  };
+  var SKIN_LABELS = {
+    whale: "鲸 Whale",
+    threadcore: "线核 Threadcore",
+    nautilus: "鹦鹉螺 Nautilus",
+    jellyfish: "水母 Jellyfish",
+  };
+  var FALLBACK_COLOR = "#8b8f9a";
   // Mirrors anim._BREATH. Amplitude in px, period in ms.
   var BREATH = {
     idle: [2.6, 2900],
@@ -94,17 +105,19 @@
     root.addEventListener("mouseenter", function () { dots.style.opacity = "1"; });
     root.addEventListener("mouseleave", function () { dots.style.opacity = "0"; });
 
-    SKINS.forEach(function (item) {
+    Object.keys((manifest && manifest.skins) || {}).sort().forEach(function (id) {
+      var label = SKIN_LABELS[id] || id;
       var btn = document.createElement("button");
       btn.type = "button";
-      btn.title = item.label;
-      btn.setAttribute("aria-label", item.label);
+      btn.title = label;
+      btn.setAttribute("aria-label", label);
       btn.style.cssText =
         "width:16px;height:16px;border-radius:50%;border:2px solid #fff;background:" +
-        item.color + ";box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer;padding:0;";
+        (SKIN_COLORS[id] || FALLBACK_COLOR) +
+        ";box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer;padding:0;";
       btn.addEventListener("click", function (ev) {
         ev.stopPropagation();
-        skin = item.id;
+        skin = id;
         // A manual pick means the page pet stops following the desktop skin.
         followDesktop = false;
       });
@@ -155,7 +168,10 @@
           img.src = src;
           lastSrc = src;
         }
-        var breath = BREATH[resolved.state] || BREATH.idle;
+        // Keyed on the requested state, not `resolved.state`: a state that has
+        // no art yet borrows idle's frames, and borrowing idle's breath as well
+        // would make it wholly indistinguishable from idle.
+        var breath = BREATH[state] || BREATH.idle;
         var dy = breath[0] * Math.sin((2 * Math.PI * (elapsed % breath[1])) / breath[1]);
         var dx = pointerDx == null ? 0 : Math.max(-5, Math.min(5, (pointerDx / 480) * 5));
         var hop = 0;

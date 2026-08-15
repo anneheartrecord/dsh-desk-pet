@@ -11,7 +11,10 @@ from typing import Iterable
 from .mapper import AgentActivity
 
 # Process name fragments that mean a DSH runtime is up.
-_DSH_PROC_MARKERS = ("@deepseek-ai/dsh", "deepseek-harness", "/dsh ", " dsh web", "dsh-desk-pet")
+# Deliberately no "dsh-desk-pet" entry: the scan below skips any line naming
+# this process, so such a marker could never match, and would only invite the
+# pet to mistake itself for a running agent.
+_DSH_PROC_MARKERS = ("@deepseek-ai/dsh", "deepseek-harness", "/dsh ", " dsh web")
 
 
 def default_dsh_home() -> Path:

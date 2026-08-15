@@ -16,10 +16,15 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 
 STATE_DIRNAME = ".dsh-desk-pet"
 STATE_FILENAME = "state.json"
+
+# The desktop pet republishes on every state change and at least once per
+# heartbeat; anything older than this is a file a dead process left behind.
+STALE_AFTER_MS = 6000
 
 
 def state_path(home: Path | None = None) -> Path:
@@ -28,11 +33,24 @@ def state_path(home: Path | None = None) -> Path:
 
 
 def publish(skin_id: str, state: str, *, home: Path | None = None, epoch_ms: int = 0) -> Path:
-    """Write the current skin/state. Returns the path written."""
+    """Write the current skin/state. Returns the path written.
+
+    `wall_ms` is deliberately wall-clock, not the monotonic `epoch_ms` the
+    renderer runs on: the reader is a Node process that only has `Date.now()`,
+    and a process-relative timestamp gives it no way to tell a live pet from
+    the file a killed one left behind. `pid` lets the reader check the same
+    thing a second way, and doubles as a single-instance marker.
+    """
 
     path = state_path(home)
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"skin": skin_id, "state": state, "epoch_ms": epoch_ms}
+    payload = {
+        "skin": skin_id,
+        "state": state,
+        "epoch_ms": epoch_ms,
+        "wall_ms": int(time.time() * 1000),
+        "pid": os.getpid(),
+    }
     blob = json.dumps(payload, separators=(",", ":"))
 
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".state-", suffix=".json")

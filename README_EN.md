@@ -79,25 +79,52 @@ Then restart `dsh web`.
 
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -v   # full suite, no window needed
+DSH_PET_ART_CHECK=1 /usr/bin/python3 -m unittest discover -s tests   # include the art gate (~10s more)
 ./bin/dsh-desk-pet --probe                          # diagnostics without mapping a window
 ./bin/dsh-desk-pet --inventory                      # frames per skin per state
+./bin/dsh-desk-pet --small --reset                  # half size, and forget the saved position
 ```
 
-### Adding art
+### The art pipeline
 
-Drop stills in `assets/source/<skin>/<state>/NN.png` on any flat background —
-the key colour is sampled from each image's own corners. Then:
+Four scripts, in order:
 
 ```bash
+./scripts/generate_frames.py       # fill in missing poses (needs ARTGEN__IMAGE_* in the env)
 ./scripts/build_frames.py          # key, align, scale; writes both frame sets
+./scripts/check_frames.py          # per-pixel inspection
 ./scripts/contact_sheet.py         # one reviewable image, no window required
 ```
 
-`build_frames.py` turns one still into two outputs: a transparent GIF under
+**generate_frames** never redraws the character from scratch: every request is
+an image-to-image edit of an existing still. Text-to-image cannot hold identity
+across calls — ask twice and you get two different whales, in two palettes, at
+two scales, and the pet visibly mutates when its state changes. Frame 00 of a
+state edits from the skin's idle rest pose; frame 01 edits from **frame 00 of
+its own state**, because a two-frame loop needs the same pose an instant later,
+not two different poses.
+
+**build_frames** turns one still into two outputs: a transparent GIF under
 `assets/skins/` for the desktop window (macOS ships Tk 8.5, whose `PhotoImage`
 reads GIF and not PNG), and an RGBA PNG under `assets/web/` for the in-page
-mirror. The crop box is computed once **per skin**, so changing state never
-makes the pet jump or resize.
+mirror. It uses ffmpeg's `colorkey`, not `chromakey`: the latter matches on
+chroma alone and ignores luma, so against a pastel plate it deletes the
+character's black eyes. After keying it seals interior holes — background is by
+definition the transparency connected to the frame border, so anything cut out
+*inside* the silhouette is damage and gets filled back in. The crop is computed
+per skin in **relative** coordinates (sources arrive at 360, 1024 and 1254px)
+and anchored on the body's baseline, so neither changing state nor changing
+skin makes the pet jump or resize.
+
+**check_frames** is the only test that looks at pixels. Everything else can
+only compare filenames — which is how the jellyfish once passed the entire
+suite with holes punched through its face.
 
 Two or more frames in a state loop automatically. The second `idle` frame is
 treated as the closed-eye pose and gets a long-open/short-shut double blink.
+
+### Custom skins
+
+A skin is just a folder of frames. Anything at
+`assets/skins/<id>/<state>/*.gif` shows up in the right-click menu on its own,
+with no code change.

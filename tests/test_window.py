@@ -28,9 +28,10 @@ class WindowTests(unittest.TestCase):
     def setUp(self) -> None:
         self.ticks = [0]
         self.app = DeskPetApp(PetRuntime(), clock=lambda: self.ticks[0])
-        # Keep the suite out of the real ~/.dsh-desk-pet; the handoff itself is
-        # covered in test_bridge against a temp home.
+        # Keep the suite out of the real ~/.dsh-desk-pet; both files are covered
+        # against a temp home in test_bridge and test_prefs.
         self.app.publish_state = False
+        self.app.save_prefs = False
         self.app._build(mapped=False)
         self.addCleanup(self.app.quit)
 
@@ -99,6 +100,7 @@ class ProbeTests(unittest.TestCase):
     def test_probe_succeeds_without_mapping_a_window(self) -> None:
         app = DeskPetApp(PetRuntime())
         app.publish_state = False
+        app.save_prefs = False
         self.assertEqual(app.probe("threadcore"), 0)
 
 

@@ -20,10 +20,11 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
-from . import bridge, packs
+from . import bridge, packs, prefs as prefs_store
 from .anim import motion_for
 from .mapper import AgentActivity
 from .observer import observe_activity
@@ -34,6 +35,9 @@ from .skins import DEFAULT_SKIN_ID, get_skin, list_skins
 MARGIN = 22
 FRAME_MS = 33
 POLL_MS = 600
+# Republish the state file at least this often even when nothing changed, so
+# the page can tell "sitting still" from "process died".
+HEARTBEAT_MS = 2000
 # Fallback plate colour if this Tk cannot do a transparent window.
 OPAQUE_BG = "#f4efe6"
 
@@ -45,8 +49,15 @@ def now_ms() -> int:
 class DeskPetApp:
     """Tk companion. All state transitions go through PetRuntime, same as tests."""
 
-    def __init__(self, runtime: PetRuntime | None = None, *, clock=now_ms) -> None:
-        self.runtime = runtime or PetRuntime()
+    def __init__(
+        self,
+        runtime: PetRuntime | None = None,
+        *,
+        clock=now_ms,
+        prefs: prefs_store.Prefs | None = None,
+    ) -> None:
+        self.prefs = (prefs or prefs_store.Prefs()).clamped()
+        self.runtime = runtime or PetRuntime(skin_id=self.prefs.skin_id)
         self.clock = clock
         self.painted_skin = ""
         self.painted_state = ""
@@ -61,13 +72,27 @@ class DeskPetApp:
         self._dragged = False
         self._pointer_dx: float | None = None
         self._published: tuple[str, str] | None = None
+        self._published_at_ms = -HEARTBEAT_MS
+        self._menu = None
+        self._latest_activity: AgentActivity | None = None
+        self._watcher: threading.Thread | None = None
+        self._stop_watch = threading.Event()
         self.publish_state = True
+        self.save_prefs = True
 
     # ---------------------------------------------------------------- window
 
     @property
+    def sprite_side(self) -> int:
+        """Tk 8.5 can only scale a PhotoImage by whole factors, so 0.5 is the
+        one alternative size available without shipping a second art pack."""
+
+        base = packs.frame_size()
+        return base // 2 if self.prefs.scale < 0.75 else base
+
+    @property
     def canvas_side(self) -> int:
-        return packs.frame_size() + MARGIN * 2
+        return self.sprite_side + MARGIN * 2
 
     def _try(self, fn, *args, **kwargs) -> bool:
         """Run an optional Tk call; report whether this build supports it."""
@@ -91,7 +116,9 @@ class DeskPetApp:
         side = self.canvas_side
         # Primary display origin. Never winfo_screenwidth(): on a multi-monitor
         # Mac that is the union of every display, which parks the pet off-screen.
-        root.geometry(f"{side}x{side}+120+160")
+        x = self.prefs.x if self.prefs.x is not None else 120
+        y = self.prefs.y if self.prefs.y is not None else 160
+        root.geometry(f"{side}x{side}+{x}+{y}")
         root.resizable(False, False)
 
         borderless = self._try(root.overrideredirect, True)
@@ -125,7 +152,8 @@ class DeskPetApp:
 
         root.bind("<Escape>", lambda _e: self.quit())
         root.bind("<q>", lambda _e: self.quit())
-        for index, skin in enumerate(list_skins(), start=1):
+        # Number keys only go to 9; past that the right-click menu is the way in.
+        for index, skin in enumerate(list_skins()[:9], start=1):
             root.bind(str(index), lambda _e, skin_id=skin.id: self.select_skin(skin_id))
 
         self._root = root
@@ -180,7 +208,23 @@ class DeskPetApp:
         # A click that never moved is a poke, not a drag.
         if not self._dragged:
             self.runtime.poke(self.clock())
+        else:
+            self._remember_position()
         self._drag_origin = None
+
+    def _remember_position(self) -> None:
+        if self._root is None:
+            return
+        self.prefs.x = self._root.winfo_x()
+        self.prefs.y = self._root.winfo_y()
+        self._save_prefs()
+
+    def _save_prefs(self) -> None:
+        if not self.save_prefs:
+            return
+        if not prefs_store.save(self.prefs):
+            # A read-only home is not worth killing the pet over; stop retrying.
+            self.save_prefs = False
 
     def _on_pointer(self, event) -> None:
         self._pointer_dx = event.x - self.canvas_side / 2
@@ -191,6 +235,8 @@ class DeskPetApp:
         """Picker entry. Changing skin must never change state."""
 
         state = self.runtime.set_skin(skin_id)
+        self.prefs.skin_id = skin_id
+        self._save_prefs()
         self.render(self.clock())
         return state
 
@@ -200,12 +246,18 @@ class DeskPetApp:
         return state
 
     def _publish(self, at_ms: int) -> None:
-        """Mirror skin/state to disk for the in-page overlay, on change only."""
+        """Mirror skin/state to disk for the in-page overlay.
+
+        Writes on change, and otherwise on a heartbeat: the page decides whether
+        the desktop pet is alive by how fresh this file is, so a pet that sat in
+        one state for a minute must not look like a pet that died a minute ago.
+        """
 
         if not self.publish_state:
             return
         current = (self.painted_skin, self.painted_state)
-        if current == self._published:
+        due = at_ms - self._published_at_ms >= HEARTBEAT_MS
+        if current == self._published and not due:
             return
         try:
             bridge.publish(self.painted_skin, self.painted_state, epoch_ms=at_ms)
@@ -214,6 +266,7 @@ class DeskPetApp:
             self.publish_state = False
             return
         self._published = current
+        self._published_at_ms = at_ms
 
     def _photo_for(self, path: Path):
         import tkinter as tk
@@ -221,6 +274,11 @@ class DeskPetApp:
         cached = self._cache.get(path)
         if cached is None:
             cached = tk.PhotoImage(file=str(path))
+            if self.sprite_side != packs.frame_size():
+                # subsample is nearest-neighbour and integer-only, but it is the
+                # only resize Tk 8.5 offers without a second art pack.
+                factor = max(1, round(packs.frame_size() / self.sprite_side))
+                cached = cached.subsample(factor, factor)
             self._cache[path] = cached
         return cached
 
@@ -237,7 +295,10 @@ class DeskPetApp:
             return
 
         motion = motion_for(
-            loop.resolved_state,
+            # The *requested* state, not the resolved one. When a state has no
+            # art yet it borrows idle's frames, and borrowing idle's breath too
+            # would leave nothing at all to tell them apart.
+            self.runtime.state,
             self.runtime.state_elapsed_ms(at_ms),
             pointer_dx=self._pointer_dx,
             half_width=self.canvas_side / 2,
@@ -265,10 +326,33 @@ class DeskPetApp:
         self.render(at)
         self._root.after(FRAME_MS, self._frame_tick)
 
+    def _start_watcher(self) -> None:
+        """Observe DSH on a background thread, not on the one drawing frames.
+
+        `observe_activity` shells out to `ps` with a two-second timeout, walks
+        the whole sessions tree and reads the newest session file. Doing that
+        inline every 600ms stalls a 33ms render loop for as long as it takes,
+        which shows up as the pet freezing mid-blink whenever DSH is busy.
+        """
+
+        def loop() -> None:
+            while not self._stop_watch.is_set():
+                try:
+                    self._latest_activity = observe_activity()
+                except Exception:
+                    self._latest_activity = None
+                self._stop_watch.wait(POLL_MS / 1000)
+
+        self._stop_watch = threading.Event()
+        self._watcher = threading.Thread(target=loop, name="dsh-desk-pet-observer", daemon=True)
+        self._watcher.start()
+
     def _poll_tick(self) -> None:
         if self._root is None:
             return
-        self.runtime.apply_activity(observe_activity(), self.clock())
+        activity = self._latest_activity
+        if activity is not None:
+            self.runtime.apply_activity(activity, self.clock())
         self._root.after(POLL_MS, self._poll_tick)
 
     def always_on_top(self) -> bool:
@@ -296,9 +380,14 @@ class DeskPetApp:
     def run(self) -> int:
         self._build(mapped=True)
         assert self._root is not None
+        self._start_watcher()
         self._root.after(FRAME_MS, self._frame_tick)
         self._root.after(POLL_MS, self._poll_tick)
-        self._root.mainloop()
+        try:
+            self._root.mainloop()
+        finally:
+            self._stop_watch.set()
+            self.quit()
         return 0
 
     # ------------------------------------------------------------------ probe
@@ -360,8 +449,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Always-on-top DSH desktop pet")
     parser.add_argument("--probe", action="store_true", help="build without mapping, print diagnostics, exit")
     parser.add_argument("--probe-skin", default="threadcore", help="skin the probe switches to")
-    parser.add_argument("--skin", default=DEFAULT_SKIN_ID, help="starting skin id")
+    parser.add_argument("--skin", help="starting skin id (overrides the saved one)")
     parser.add_argument("--state", default="idle", help="starting state")
+    parser.add_argument("--small", action="store_true", help="draw at half size")
+    parser.add_argument("--reset", action="store_true", help="forget saved position, size and skin")
     parser.add_argument("--inventory", action="store_true", help="print the frame inventory and exit")
     args = parser.parse_args(argv)
 
@@ -371,9 +462,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{skin:12s} {counts}")
         return 0
 
-    get_skin(args.skin)
-    runtime = PetRuntime(skin_id=args.skin, state=args.state)  # type: ignore[arg-type]
-    app = DeskPetApp(runtime)
+    saved = prefs_store.Prefs() if args.reset else prefs_store.load()
+    if args.skin:
+        get_skin(args.skin)
+        saved.skin_id = args.skin
+    if args.small:
+        saved.scale = 0.5
+    saved = saved.clamped()
+
+    # Seed the runtime with the same clock the app uses. Left at 0, the first
+    # tick would read `state_elapsed_ms` as the whole monotonic clock — which on
+    # platforms where that is boot-relative sails straight past SLEEP_AFTER_MS
+    # and the pet launches already asleep.
+    runtime = PetRuntime(skin_id=saved.skin_id, state=args.state, now_ms=now_ms())  # type: ignore[arg-type]
+    app = DeskPetApp(runtime, prefs=saved)
     return app.probe(args.probe_skin) if args.probe else app.run()
 
 
