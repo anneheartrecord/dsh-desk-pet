@@ -52,7 +52,7 @@ Driven by your local DSH. Nothing to configure.
 | waiting | Blocked on a confirmation, approval, or your input |
 | error | The run failed |
 | happy | A run just finished; decays back to idle after a few seconds |
-| sleeping | Dozes off after five idle minutes; any activity or a poke wakes it |
+| sleeping | Dozes only when the agent is idle **and** your pointer has stopped moving; any activity or a poke wakes it |
 
 ## Skins
 

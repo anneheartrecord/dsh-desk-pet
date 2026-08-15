@@ -89,6 +89,33 @@ class WindowTests(unittest.TestCase):
             self.app.render(t)
         self.assertLessEqual(len(self.app._cache), 8, "leaking a PhotoImage per frame")
 
+    def test_centre_of_the_frame_is_on_the_pet(self) -> None:
+        centre = self.app.canvas_side / 2
+        self.assertTrue(self.app.is_on_pet(centre, centre))
+
+    def test_corners_are_not_on_the_pet(self) -> None:
+        """Otherwise the window is an invisible box you can drag by its corner."""
+
+        for x, y in ((1, 1), (self.app.canvas_side - 2, 1), (1, self.app.canvas_side - 2)):
+            self.assertFalse(self.app.is_on_pet(x, y), f"({x},{y}) counted as the pet")
+
+    def test_press_on_empty_air_starts_no_drag(self) -> None:
+        class _Event:
+            x = y = 2
+            x_root = y_root = 0
+
+        self.app._on_press(_Event())
+        self.assertIsNone(self.app._drag_origin)
+
+    def test_press_on_the_pet_starts_a_drag(self) -> None:
+        class _Event:
+            x = y = 0
+            x_root = y_root = 0
+
+        _Event.x = _Event.y = int(self.app.canvas_side / 2)
+        self.app._on_press(_Event())
+        self.assertIsNotNone(self.app._drag_origin)
+
     def test_quit_is_idempotent(self) -> None:
         self.app.quit()
         self.app.quit()

@@ -20,8 +20,11 @@ from .skins import DEFAULT_SKIN_ID, get_skin, is_known_skin
 
 # How long the celebration holds before falling back to idle.
 HAPPY_MS = 3200
-# Idle this long with nothing to do and the pet dozes off.
-SLEEP_AFTER_MS = 5 * 60 * 1000
+# Nothing to do *and* nobody at the keyboard for this long, and the pet dozes.
+# Short, because it is gated on the pointer having stopped moving as well —
+# without that gate this had to be minutes, and a quiet agent was
+# indistinguishable from a user who had walked away.
+SLEEP_AFTER_MS = 90 * 1000
 # Length of the bounce a click queues up.
 HOP_MS = 520
 
@@ -68,14 +71,22 @@ class PetRuntime:
             return self._state
         return self._enter(observed, now_ms)
 
-    def tick(self, now_ms: int) -> PetState:
-        """Advance the self-driven transitions. Safe to call every frame."""
+    def tick(self, now_ms: int, user_idle_ms: int | None = None) -> PetState:
+        """Advance the self-driven transitions. Safe to call every frame.
+
+        ``user_idle_ms`` is how long the pointer has sat still. Dozing needs
+        both clocks: an agent with nothing to do is not the same thing as a
+        desk with nobody at it, and only the second one should put the pet to
+        sleep. Pass ``None`` when there is no pointer to watch and the state
+        clock decides alone.
+        """
 
         elapsed = self.state_elapsed_ms(now_ms)
         if self._state == "happy" and elapsed >= HAPPY_MS:
             return self._enter("idle", now_ms)
         if self._state == "idle" and elapsed >= SLEEP_AFTER_MS:
-            return self._enter("sleeping", now_ms)
+            if user_idle_ms is None or user_idle_ms >= SLEEP_AFTER_MS:
+                return self._enter("sleeping", now_ms)
         return self._state
 
     def poke(self, now_ms: int) -> PetState:

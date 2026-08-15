@@ -92,6 +92,31 @@ class DecayTests(unittest.TestCase):
         self.assertEqual(runtime.tick(SLEEP_AFTER_MS + 1), "sleeping")
 
 
+class PresenceTests(unittest.TestCase):
+    """Dozing needs an idle agent *and* an absent user, not either alone."""
+
+    def test_present_user_keeps_the_pet_awake(self) -> None:
+        runtime = PetRuntime()
+        self.assertEqual(runtime.tick(SLEEP_AFTER_MS * 4, user_idle_ms=0), "idle")
+
+    def test_absent_user_and_idle_agent_dozes(self) -> None:
+        runtime = PetRuntime()
+        self.assertEqual(
+            runtime.tick(SLEEP_AFTER_MS, user_idle_ms=SLEEP_AFTER_MS), "sleeping"
+        )
+
+    def test_user_who_just_moved_the_mouse_wakes_the_countdown(self) -> None:
+        runtime = PetRuntime()
+        runtime.tick(SLEEP_AFTER_MS, user_idle_ms=SLEEP_AFTER_MS - 1)
+        self.assertEqual(runtime.state, "idle")
+
+    def test_no_pointer_information_falls_back_to_the_state_clock(self) -> None:
+        """Headless, or a Tk that will not report the pointer: still dozes."""
+
+        runtime = PetRuntime()
+        self.assertEqual(runtime.tick(SLEEP_AFTER_MS, user_idle_ms=None), "sleeping")
+
+
 class PokeTests(unittest.TestCase):
     def test_poke_wakes_the_pet(self) -> None:
         runtime = PetRuntime()

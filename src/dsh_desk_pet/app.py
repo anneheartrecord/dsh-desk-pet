@@ -38,6 +38,8 @@ POLL_MS = 600
 # Republish the state file at least this often even when nothing changed, so
 # the page can tell "sitting still" from "process died".
 HEARTBEAT_MS = 2000
+# How often to re-assert always-on-top. Aqua drops it on focus changes.
+TOPMOST_MS = 4000
 # Fallback plate colour if this Tk cannot do a transparent window.
 OPAQUE_BG = "#f4efe6"
 
@@ -75,6 +77,8 @@ class DeskPetApp:
         self._published_at_ms = -HEARTBEAT_MS
         self._menu = None
         self._latest_activity: AgentActivity | None = None
+        self._pointer_seen: tuple[int, int] | None = None
+        self._pointer_moved_ms = 0
         self._watcher: threading.Thread | None = None
         self._stop_watch = threading.Event()
         self.publish_state = True
@@ -93,6 +97,38 @@ class DeskPetApp:
     @property
     def canvas_side(self) -> int:
         return self.sprite_side + MARGIN * 2
+
+    def _sprite_origin(self) -> tuple[float, float]:
+        """Top-left of the sprite as currently drawn, in canvas coordinates."""
+
+        if self._canvas is None or self._sprite_id is None:
+            half = self.sprite_side / 2
+            return self.canvas_side / 2 - half, self.canvas_side / 2 - half
+        cx, cy = self._canvas.coords(self._sprite_id)
+        return cx - self.sprite_side / 2, cy - self.sprite_side / 2
+
+    def is_on_pet(self, x: float, y: float) -> bool:
+        """Is this canvas point actually on the character, or on empty air?
+
+        Tk cannot make a window ignore clicks per pixel, so the window is always
+        a rectangle and always swallows what is under it. It can at least stop
+        *itself* from reacting: dragging the pet by a corner of empty space felt
+        like dragging an invisible box, which is exactly what it was.
+        """
+
+        photo = self._photo
+        if photo is None:
+            return True
+        ox, oy = self._sprite_origin()
+        px, py = int(x - ox), int(y - oy)
+        if not (0 <= px < self.sprite_side and 0 <= py < self.sprite_side):
+            return False
+        try:
+            return not bool(photo.transparency_get(px, py))
+        except Exception:
+            # Older Tk, or a photo without a transparency table: assume a hit
+            # rather than making the pet unclickable.
+            return True
 
     def _try(self, fn, *args, **kwargs) -> bool:
         """Run an optional Tk call; report whether this build supports it."""
@@ -164,8 +200,7 @@ class DeskPetApp:
         if mapped:
             root.deiconify()
             root.lift()
-            # Aqua drops topmost when another app takes focus; re-assert once.
-            root.after(300, lambda: self._try(root.attributes, "-topmost", True))
+            root.after(TOPMOST_MS, self._topmost_tick)
 
     def _build_menu(self, root):
         import tkinter as tk
@@ -191,7 +226,7 @@ class DeskPetApp:
     # ------------------------------------------------------------ interaction
 
     def _on_press(self, event) -> None:
-        if self._root is None:
+        if self._root is None or not self.is_on_pet(event.x, event.y):
             return
         self._dragged = False
         self._drag_origin = (event.x_root - self._root.winfo_x(), event.y_root - self._root.winfo_y())
@@ -205,6 +240,8 @@ class DeskPetApp:
         self._root.geometry(f"+{x}+{y}")
 
     def _on_release(self, _event) -> None:
+        if self._drag_origin is None:
+            return  # press landed on empty air; nothing was started
         # A click that never moved is a poke, not a drag.
         if not self._dragged:
             self.runtime.poke(self.clock())
@@ -318,11 +355,44 @@ class DeskPetApp:
 
     # ------------------------------------------------------------------ loops
 
+    def _topmost_tick(self) -> None:
+        """Keep re-asserting always-on-top.
+
+        Aqua quietly drops the level whenever another application takes focus,
+        so a single assert at startup leaves the pet sinking behind the browser
+        the first time you click it. The reference desk pet runs the same
+        watchdog for the same reason.
+        """
+
+        if self._root is None:
+            return
+        self._try(self._root.attributes, "-topmost", True)
+        self._root.after(TOPMOST_MS, self._topmost_tick)
+
+    def _user_idle_ms(self, at_ms: int) -> int | None:
+        """How long the pointer has sat still, anywhere on screen.
+
+        `winfo_pointerxy` reports the global pointer, not just pointer events
+        over our own window, which is what makes this a usable proxy for "is
+        anyone at this desk" rather than "is anyone hovering the pet".
+        """
+
+        if self._root is None:
+            return None
+        try:
+            position = self._root.winfo_pointerxy()
+        except Exception:
+            return None
+        if position != self._pointer_seen:
+            self._pointer_seen = position
+            self._pointer_moved_ms = at_ms
+        return at_ms - self._pointer_moved_ms
+
     def _frame_tick(self) -> None:
         if self._root is None:
             return
         at = self.clock()
-        self.runtime.tick(at)
+        self.runtime.tick(at, self._user_idle_ms(at))
         self.render(at)
         self._root.after(FRAME_MS, self._frame_tick)
 
