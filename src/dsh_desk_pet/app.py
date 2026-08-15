@@ -42,6 +42,8 @@ HEARTBEAT_MS = 2000
 TOPMOST_MS = 4000
 # Fallback plate colour if this Tk cannot do a transparent window.
 OPAQUE_BG = "#f4efe6"
+# Set DSH_PET_DEBUG=1 to trace the observe -> state loop on stderr.
+DEBUG = os.environ.get("DSH_PET_DEBUG") == "1"
 
 
 def now_ms() -> int:
@@ -185,7 +187,14 @@ class DeskPetApp:
 
         os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
         root = tk.Tk()
-        root.withdraw()
+        # Withdraw only when we are never going to show this window. Building
+        # the widget tree inside a withdrawn root and mapping it afterwards left
+        # the canvas unmapped on macOS Tk 8.5 — the window appeared, at the
+        # right size, showing the default system background and none of its
+        # contents. The probe still withdraws, because mapping is the one call
+        # that blocks without a window server.
+        if not mapped:
+            root.withdraw()
         root.title("DSH Desk Pet")
 
         side = self.canvas_side
@@ -242,7 +251,7 @@ class DeskPetApp:
         self.render(self.clock())
 
         if mapped:
-            root.deiconify()
+            # Never withdrawn, so there is nothing to deiconify; just raise it.
             root.lift()
             # Mapping the window clears -topmost on Aqua, so setting it before
             # deiconify (as the probe measures it) is not enough: measured on a
@@ -427,8 +436,11 @@ class DeskPetApp:
 
         if self._root is None:
             return
-        self._try(self._root.attributes, "-topmost", True)
-        self.above_fullscreen = macwindow.float_above_fullscreen() > 0
+        try:
+            self._try(self._root.attributes, "-topmost", True)
+            self.above_fullscreen = macwindow.float_above_fullscreen() > 0
+        except Exception:
+            pass  # see _poll_tick: never let one bad tick end the loop
         self._root.after(TOPMOST_MS, self._topmost_tick)
 
     def _user_idle_ms(self, at_ms: int) -> int | None:
@@ -453,9 +465,12 @@ class DeskPetApp:
     def _frame_tick(self) -> None:
         if self._root is None:
             return
-        at = self.clock()
-        self.runtime.tick(at, self._user_idle_ms(at))
-        self.render(at)
+        try:
+            at = self.clock()
+            self.runtime.tick(at, self._user_idle_ms(at))
+            self.render(at)
+        except Exception:
+            pass  # see _poll_tick: never let one bad tick end the loop
         self._root.after(FRAME_MS, self._frame_tick)
 
     def _start_watcher(self) -> None:
@@ -471,7 +486,9 @@ class DeskPetApp:
             while not self._stop_watch.is_set():
                 try:
                     self._latest_activity = observe_activity()
-                except Exception:
+                except Exception as exc:
+                    if DEBUG:
+                        print(f"[watch] {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
                     self._latest_activity = None
                 self._stop_watch.wait(POLL_MS / 1000)
 
@@ -483,9 +500,21 @@ class DeskPetApp:
     def _poll_tick(self) -> None:
         if self._root is None:
             return
-        activity = self._latest_activity
-        if activity is not None:
-            self.runtime.apply_activity(activity, self.clock())
+        try:
+            activity = self._latest_activity
+            if DEBUG:
+                print(
+                    f"[poll] observed={activity} state={self.runtime.state}",
+                    file=sys.stderr, flush=True,
+                )
+            if activity is not None:
+                self.runtime.apply_activity(activity, self.clock())
+        except Exception:
+            # Reschedule regardless. A Tk `after` callback that raises is never
+            # queued again, so one transient error would stop the pet reacting
+            # to DSH for the rest of the session while the render loop kept
+            # running — a pet that looks alive and has stopped listening.
+            pass
         self._root.after(POLL_MS, self._poll_tick)
 
     def always_on_top(self) -> bool:
