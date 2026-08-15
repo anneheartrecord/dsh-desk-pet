@@ -64,10 +64,14 @@ class ClampTests(unittest.TestCase):
     def test_garbage_scale_becomes_one(self) -> None:
         self.assertEqual(Prefs(scale="huge").clamped().scale, 1.0)  # type: ignore[arg-type]
 
-    def test_offscreen_position_is_discarded(self) -> None:
-        """A pet parked at a negative offset cannot be dragged back into view."""
+    def test_negative_coordinates_are_kept(self) -> None:
+        """A display to the left of the primary has them; they are not errors."""
 
-        clamped = Prefs(x=-4000, y=-3000).clamped()
+        clamped = Prefs(x=-1200, y=-40).clamped()
+        self.assertEqual((clamped.x, clamped.y), (-1200, -40))
+
+    def test_absurd_position_is_discarded(self) -> None:
+        clamped = Prefs(x=-999_999, y=999_999).clamped()
         self.assertIsNone(clamped.x)
         self.assertIsNone(clamped.y)
 

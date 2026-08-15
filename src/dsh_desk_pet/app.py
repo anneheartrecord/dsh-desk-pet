@@ -59,8 +59,11 @@ class DeskPetApp:
         prefs: prefs_store.Prefs | None = None,
     ) -> None:
         self.prefs = (prefs or prefs_store.Prefs()).clamped()
-        self.runtime = runtime or PetRuntime(skin_id=self.prefs.skin_id)
         self.clock = clock
+        # Seed from the same clock the app runs on. A runtime starting at t=0
+        # against a monotonic clock reads its first tick as minutes of elapsed
+        # idle time, and the pet launches already asleep.
+        self.runtime = runtime or PetRuntime(skin_id=self.prefs.skin_id, now_ms=clock())
         self.painted_skin = ""
         self.painted_state = ""
         self.painted_frame: Path | None = None
@@ -413,7 +416,8 @@ class DeskPetApp:
                     self._latest_activity = None
                 self._stop_watch.wait(POLL_MS / 1000)
 
-        self._stop_watch = threading.Event()
+        if self._watcher is not None:
+            return  # already watching; a second thread would just duplicate work
         self._watcher = threading.Thread(target=loop, name="dsh-desk-pet-observer", daemon=True)
         self._watcher.start()
 

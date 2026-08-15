@@ -133,9 +133,19 @@ def loop_for(skin_id: str, state: str, *, web: bool = False) -> FrameLoop:
     Cached: the renderer calls this thirty times a second, and uncached it does
     a `glob` plus a `stat` per file on every frame — a directory scan at 30Hz
     for a directory that only changes when someone reruns the build script.
+
+    An empty result is the one case worth a second look. `skins` discovers skin
+    folders from disk on every call, so a skin generated while the pet is
+    running becomes selectable immediately — and would then be served a cached
+    empty loop and freeze the sprite on its last frame. Missing art is rare and
+    a single extra directory scan is cheap, so an empty hit re-checks disk.
     """
 
-    return _loop_cached(skin_id, state, web)
+    loop = _loop_cached(skin_id, state, web)
+    if not loop.frames and (SKIN_ROOT / skin_id).is_dir():
+        reset_cache()
+        loop = _loop_cached(skin_id, state, web)
+    return loop
 
 
 def reset_cache() -> None:

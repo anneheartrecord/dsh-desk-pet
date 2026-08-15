@@ -29,6 +29,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -70,10 +71,18 @@ POSES: dict[str, dict[str, str]] = {
         ),
     },
     "working": {
+        # Not a blink. An earlier pass made 01 a closed-eye frame, which is what
+        # idle/01 already is — so half of `working` was pixel-identical to idle,
+        # and the state's only signifier vanished every other frame.
         "01": (
-            "Same concentrating working pose as the reference's working frame, one instant later: "
-            "eyes briefly closed in a quick blink, head tipped very slightly forward. "
-            "Everything else identical."
+            "The same concentrating pose one instant later, mid-action: the hand and its tool have "
+            "moved to a clearly different position, as though partway through a stroke. Eyes stay "
+            "open and focused on the work, brow still furrowed. Body, scale and framing unchanged."
+        ),
+        "02": (
+            "The same concentrating pose again, still holding the tool in view, but with the eyes "
+            "briefly closed in a quick blink. The tool must remain visible and in the same place "
+            "as the reference."
         ),
     },
     # `waiting` means "blocked on you", and it has to be legible as *that*, not
@@ -110,13 +119,20 @@ POSES: dict[str, dict[str, str]] = {
         ),
     },
     "sleeping": {
+        # The silhouette has to change, not just the props. Closed eyes plus a
+        # ZZZ over an otherwise upright body is indistinguishable from an idle
+        # blink at display size, and leaves a small floating glyph carrying the
+        # whole state.
         "00": (
-            "Fast asleep: eyes closed in gentle downward curves, a soft blush, a small trail of "
-            "ZZZ letters floating up from the head, body relaxed and slumped down a little."
+            "Fast asleep and visibly slumped: the whole body settled downward and squashed wider "
+            "and flatter than the reference, head drooping forward and tipped to one side, "
+            "shoulders collapsed. Eyes closed in gentle downward curves, a soft blush, and a small "
+            "trail of ZZZ letters floating up from the head."
         ),
         "01": (
-            "The same sleeping pose on a deeper breath: body settled lower and slightly wider, eyes "
-            "still closed, the ZZZ letters drifted a little higher and fainter."
+            "The same slumped sleeping pose on a deeper breath: body settled a little lower and "
+            "wider still, head drooped slightly further, eyes still closed, the ZZZ letters "
+            "drifted higher and fainter."
         ),
     },
 }
@@ -131,6 +147,34 @@ def _endpoint() -> tuple[str, str]:
             "They live in ~/.config/secrets/api-keys.env and are exported by ~/.zshenv."
         )
     return f"{base}/images/edits", key
+
+
+# Re-plating prompt. The plate the art was generated on is a pastel that sits
+# close to the characters themselves — the jellyfish's mint background is within
+# keying distance of its own pale highlights — which is why no threshold ever
+# separated them cleanly. Magenta appears nowhere in any of these palettes, so
+# the key becomes unambiguous instead of merely well-tuned.
+REPLATE_PROMPT = (
+    "Keep the character exactly as it is: same art style, colour palette, line weight, shading, "
+    "proportions, pose, expression, framing and size. Change ONLY the background: replace it with "
+    "pure saturated magenta, hex #FF00FF, completely flat and uniform, filling the entire frame "
+    "edge to edge behind the character. No gradient, no shadow, no glow, no vignette. The "
+    "character itself must not take on any magenta."
+)
+
+
+def _is_magenta(path: Path) -> bool:
+    """Does this still already sit on the keyable plate?"""
+
+    proc = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(path), "-vf", "crop=12:12:0:0,scale=1:1",
+         "-f", "rawvideo", "-pix_fmt", "rgba", "-"],
+        capture_output=True,
+    )
+    if proc.returncode != 0 or len(proc.stdout) < 3:
+        return False
+    r, g, b = proc.stdout[0], proc.stdout[1], proc.stdout[2]
+    return r > 180 and g < 90 and b > 180
 
 
 def reference_for(skin: str, state: str, index: str) -> Path:
@@ -150,34 +194,57 @@ def reference_for(skin: str, state: str, index: str) -> Path:
     return SOURCE_ROOT / skin / "idle" / "00.png"
 
 
-def generate(skin: str, state: str, index: str, delta: str, *, force: bool) -> tuple[str, str]:
+def generate(
+    skin: str, state: str, index: str, delta: str, *, force: bool, replate: bool = False
+) -> tuple[str, str]:
     dest = SOURCE_ROOT / skin / state / f"{index}.png"
-    if dest.is_file() and not force:
-        return f"{skin}/{state}/{index}", "skip (exists)"
-
-    reference = reference_for(skin, state, index)
-    if not reference.is_file():
-        return f"{skin}/{state}/{index}", f"FAIL no reference at {reference}"
+    if replate:
+        # Edit the frame in place: the pose is already right, only its plate is
+        # being swapped, so the frame is its own reference.
+        reference = dest
+        if not reference.is_file():
+            return f"{skin}/{state}/{index}", "skip (nothing to re-plate)"
+        if _is_magenta(dest):
+            # Idempotent, so a run can be repeated to pick up failures without
+            # sending every already-converted frame through the model again and
+            # letting it drift.
+            return f"{skin}/{state}/{index}", "skip (already magenta)"
+        prompt = REPLATE_PROMPT
+    else:
+        if dest.is_file() and not force:
+            return f"{skin}/{state}/{index}", "skip (exists)"
+        reference = reference_for(skin, state, index)
+        if not reference.is_file():
+            return f"{skin}/{state}/{index}", f"FAIL no reference at {reference}"
+        subject = SKIN_SUBJECT.get(skin, "character")
+        prompt = f"{IDENTITY} The character is a cute chibi {subject}. {delta}"
 
     url, key = _endpoint()
-    subject = SKIN_SUBJECT.get(skin, "character")
-    prompt = f"{IDENTITY} The character is a cute chibi {subject}. {delta}"
+    # The Authorization header goes through a 0600 config file, never argv:
+    # anything on `curl -H "Bearer ..."` is readable by every process on the
+    # machine via `ps`, and this key is the user's real one.
+    header_fd, header_file = tempfile.mkstemp(prefix=".artgen-", suffix=".conf")
+    with os.fdopen(header_fd, "w", encoding="utf-8") as handle:
+        handle.write(f'header = "Authorization: Bearer {key}"\n')
 
     # curl rather than urllib: multipart with a file part is a lot of boilerplate
     # in the stdlib, and curl is already required by the rest of this repo's tooling.
-    proc = subprocess.run(
-        [
-            "curl", "-s", "--noproxy", "*", "--max-time", str(TIMEOUT_S),
-            "-X", "POST", url,
-            "-H", f"Authorization: Bearer {key}",
-            "-F", f"model={MODEL}",
-            "-F", f"image=@{reference}",
-            "-F", f"size={SIZE}",
-            "-F", "n=1",
-            "-F", f"prompt={prompt}",
-        ],
-        capture_output=True,
-    )
+    try:
+        proc = subprocess.run(
+            [
+                "curl", "-s", "--noproxy", "*", "--max-time", str(TIMEOUT_S),
+                "-K", header_file,
+                "-X", "POST", url,
+                "-F", f"model={MODEL}",
+                "-F", f"image=@{reference}",
+                "-F", f"size={SIZE}",
+                "-F", "n=1",
+                "-F", f"prompt={prompt}",
+            ],
+            capture_output=True,
+        )
+    finally:
+        Path(header_file).unlink(missing_ok=True)
     if proc.returncode != 0:
         return f"{skin}/{state}/{index}", f"FAIL curl rc={proc.returncode}"
 
@@ -222,29 +289,46 @@ def main() -> int:
     parser.add_argument("--skin", action="append", help="limit to these skins")
     parser.add_argument("--state", action="append", help="limit to these states")
     parser.add_argument("--force", action="store_true", help="regenerate frames that already exist")
+    parser.add_argument(
+        "--replate",
+        action="store_true",
+        help="keep every existing pose, swap its background for a keyable magenta",
+    )
     parser.add_argument("--workers", type=int, default=4)
     args = parser.parse_args()
 
     skins = args.skin or sorted(p.name for p in SOURCE_ROOT.iterdir() if p.is_dir())
-    states = args.state or list(POSES)
 
-    jobs = [
-        (skin, state, index, delta)
-        for skin in skins
-        for state in states
-        for index, delta in POSES.get(state, {}).items()
-    ]
+    if args.replate:
+        # Every still on disk, not just the ones this script knows how to pose.
+        jobs = [
+            (skin, path.parent.name, path.stem, "")
+            for skin in skins
+            for path in sorted((SOURCE_ROOT / skin).glob("*/*.png"))
+        ]
+    else:
+        states = args.state or list(POSES)
+        jobs = [
+            (skin, state, index, delta)
+            for skin in skins
+            for state in states
+            for index, delta in POSES.get(state, {}).items()
+        ]
     if not jobs:
         print("nothing to do")
         return 0
 
     # Two passes, because frame 01 of a state edits from frame 00 of that same
     # state. Run them together and 01 either races a missing file or edits the
-    # previous build's 00.
-    waves = [
-        [job for job in jobs if job[2] == "00"],
-        [job for job in jobs if job[2] != "00"],
-    ]
+    # previous build's 00. Re-plating has no such dependency — each frame is its
+    # own reference — so it goes in one wave.
+    if args.replate:
+        waves = [jobs]
+    else:
+        waves = [
+            [job for job in jobs if job[2] == "00"],
+            [job for job in jobs if job[2] != "00"],
+        ]
     print(f"{len(jobs)} frames across {len(skins)} skins, {args.workers} at a time")
 
     failures = 0
@@ -252,7 +336,10 @@ def main() -> int:
         if not wave:
             continue
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
-            futures = {pool.submit(generate, *job, force=args.force): job for job in wave}
+            futures = {
+                pool.submit(generate, *job, force=args.force, replate=args.replate): job
+                for job in wave
+            }
             for future in as_completed(futures):
                 name, status = future.result()
                 if status.startswith("FAIL"):

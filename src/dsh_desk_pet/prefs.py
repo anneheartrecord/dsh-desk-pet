@@ -26,6 +26,8 @@ PREFS_FILENAME = "prefs.json"
 
 MIN_SCALE = 0.5
 MAX_SCALE = 2.0
+# Beyond this a saved position is not "on another display", it is lost.
+OFFSCREEN_LIMIT = 20_000
 
 
 @dataclass
@@ -46,11 +48,13 @@ class Prefs:
         scale = max(MIN_SCALE, min(MAX_SCALE, scale))
         x = self.x if isinstance(self.x, int) else None
         y = self.y if isinstance(self.y, int) else None
-        # A window parked at a negative offset can land fully off-screen with no
-        # way to drag it back, so treat those as "no saved position".
-        if x is not None and x < 0:
+        # Negative coordinates are ordinary: a display placed to the left of, or
+        # above, the primary one has them. Only absurd values are rejected —
+        # those strand the window somewhere it cannot be dragged back from,
+        # which is the failure actually worth guarding against.
+        if x is not None and not -OFFSCREEN_LIMIT <= x <= OFFSCREEN_LIMIT:
             x = None
-        if y is not None and y < 0:
+        if y is not None and not -OFFSCREEN_LIMIT <= y <= OFFSCREEN_LIMIT:
             y = None
         return Prefs(skin_id=skin, x=x, y=y, scale=scale)
 

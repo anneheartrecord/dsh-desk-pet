@@ -91,6 +91,17 @@ class ParseTests(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 0, f"{name}: {proc.stderr[:400]}")
 
+    def test_routes_answer_against_a_stand_in_cordis_context(self) -> None:
+        """Runs `apply()` for real. Everything else here only reads the source,
+        which cannot tell a registered route from one that throws on its first
+        request."""
+
+        proc = subprocess.run(
+            [NODE, str(ROOT / "tests" / "plugin_smoke.mjs")],
+            capture_output=True, text=True, timeout=120, cwd=str(ROOT),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout[-2000:] + proc.stderr[-800:])
+
 
 class OverlayTests(unittest.TestCase):
     def test_overlay_mounts_once_and_uses_real_frames(self) -> None:
