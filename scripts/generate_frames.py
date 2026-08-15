@@ -58,6 +58,17 @@ IDENTITY = (
 
 # state -> frame index -> the delta to apply.
 POSES: dict[str, dict[str, str]] = {
+    "idle": {
+        # The in-between of the blink. The Codex atlas spends its two shortest
+        # holds (110ms) on exactly this frame, and it is the whole reason its
+        # idle reads as an eyelid moving rather than eyes cutting to black.
+        "02": (
+            "Identical to the reference in every way except the eyes, which are half closed: "
+            "upper eyelids drawn down to cover the top half of each eye, pupils still visible "
+            "underneath. Mid-blink, caught between open and shut. Do not change the mouth, the "
+            "head angle, the body or anything else."
+        ),
+    },
     "working": {
         "01": (
             "Same concentrating working pose as the reference's working frame, one instant later: "

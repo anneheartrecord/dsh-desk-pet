@@ -79,6 +79,17 @@ def auto_timeline(state: str, frame_count: int) -> Timeline:
             return Timeline(((0, 900), (1, 220)))
         return Timeline(((0, 500), (1, 260)))
 
+    if frame_count == 3 and state == "idle":
+        # Frame 2 is the half-lidded in-between. Playing it on the way down and
+        # again on the way up is what turns a two-frame cut into an eyelid; the
+        # Codex atlas spends its two shortest holds on exactly this frame.
+        return Timeline(
+            (
+                (0, 2400), (2, 60), (1, BLINK_MS), (2, 60),
+                (0, 300), (2, 60), (1, BLINK_MS), (2, 60),
+            )
+        )
+
     rest_hold = 600 if state in ("idle", "sleeping") else 220
     steps: list[Step] = [(0, rest_hold)]
     steps.extend((i, 140) for i in range(1, frame_count))

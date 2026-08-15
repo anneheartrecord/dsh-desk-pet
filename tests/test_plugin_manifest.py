@@ -9,10 +9,13 @@ quietly diverging from the real one.
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+NODE = shutil.which("node")
 
 
 def _read(*parts: str) -> str:
@@ -73,6 +76,20 @@ class HostPluginTests(unittest.TestCase):
 
     def test_state_route_degrades_instead_of_failing(self) -> None:
         self.assertIn("live: false", self.plugin)
+
+
+@unittest.skipUnless(NODE, "node not on PATH")
+class ParseTests(unittest.TestCase):
+    """The plugin is loaded by DSH's Node process, so a syntax error there is
+    not a failing test — it is the whole plugin silently not loading."""
+
+    def test_every_shipped_script_parses(self) -> None:
+        for name in ("index.mjs", "overlay.js", "client.js"):
+            proc = subprocess.run(
+                [NODE, "--check", str(ROOT / "plugin" / name)],
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(proc.returncode, 0, f"{name}: {proc.stderr[:400]}")
 
 
 class OverlayTests(unittest.TestCase):

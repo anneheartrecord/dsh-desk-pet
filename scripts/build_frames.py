@@ -53,6 +53,22 @@ ALPHA_CUTOFF = 160
 # Where the bottom of the body sits inside the square crop. Shared by every
 # skin so switching skin does not move the pet vertically.
 BASELINE_RATIO = 0.94
+# Sum-of-channel distance under which an enclosed region counts as the plate
+# showing through rather than artwork the key removed.
+PLATE_DISTANCE = 150
+
+
+def _hex_rgb(value: str) -> tuple[int, int, int]:
+    # Strip the prefix, not a character set: `lstrip("0x")` eats every leading
+    # '0' and 'x', so "0x00E412" becomes "E412" and the parse silently shifts.
+    raw = value.strip()
+    if raw.startswith("#"):
+        raw = raw[1:]
+    elif raw[:2].lower() == "0x":
+        raw = raw[2:]
+    if len(raw) != 6:
+        raise ValueError(f"expected a 6-digit hex colour, got {value!r}")
+    return int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)
 
 STATES = ("idle", "working", "waiting", "error", "happy", "sleeping")
 
@@ -144,36 +160,58 @@ def alpha_bbox(path: Path, key: str) -> tuple[tuple[float, float, float, float] 
 
 
 def square_crop(
-    bbox: tuple[float, float, float, float], w: int, h: int, pad_ratio: float = 0.06
+    union: tuple[float, float, float, float],
+    w: int,
+    h: int,
+    frame: tuple[float, float, float, float] | None = None,
+    pad_ratio: float = 0.06,
 ) -> tuple[int, int, int, int]:
-    """Turn a relative union bbox into a padded square crop in this frame's pixels.
+    """Square crop for one frame: sized from the skin, positioned from the pose.
 
-    Vertically the crop is anchored so the *bottom* of the body lands at
-    `BASELINE_RATIO`, not so the bbox is centred. Centring lets a skin with a
-    tall silhouette (the nautilus shell) sit visibly higher than a squat one,
-    and switching skin then makes the pet hop up the screen.
+    Two different jobs, deliberately fed by two different boxes.
+
+    *Size* comes from the skin's union box, so every frame of a skin is drawn at
+    the same scale and the character never grows or shrinks between states.
+
+    *Position* comes from this frame's own box, anchored so the bottom of the
+    body lands at `BASELINE_RATIO`. Anchoring on the union instead let each pose
+    sit wherever its own extent happened to fall — up to 25px apart within one
+    skin, so the pet visibly hopped whenever it changed state. Vertical movement
+    is the renderer's job (breath, hop); the art should hold still.
     """
 
-    x0, y0, x1, y1 = bbox[0] * w, bbox[1] * h, bbox[2] * w, bbox[3] * h
-    side = max(x1 - x0, y1 - y0) * (1 + pad_ratio * 2)
+    ux0, uy0, ux1, uy1 = union[0] * w, union[1] * h, union[2] * w, union[3] * h
+    side = max(ux1 - ux0, uy1 - uy0) * (1 + pad_ratio * 2)
     side = int(round(min(side, w, h)))
-    cx = (x0 + x1) / 2
+
+    box = frame or union
+    fx0, fy1 = box[0] * w, box[3] * h
+    fx1 = box[2] * w
+    cx = (fx0 + fx1) / 2
     x = max(0, min(int(round(cx - side / 2)), w - side))
-    y = max(0, min(int(round(y1 - side * BASELINE_RATIO)), h - side))
+    y = max(0, min(int(round(fy1 - side * BASELINE_RATIO)), h - side))
     return x, y, side, side
 
 
-def _seal_interior(raw: bytearray, w: int, h: int) -> int:
-    """Make opaque again any transparency the border cannot reach.
+def _seal_interior(raw: bytearray, w: int, h: int, key: str) -> int:
+    """Restore transparency the key opened up *inside* the character.
 
-    Background is, by definition, the transparency connected to the edge of the
-    frame. Anything the key cut out *inside* the silhouette is not background —
-    it is a hole punched through the character, and no amount of tuning the key
-    threshold distinguishes the two. A flood fill does, exactly.
+    Being unreachable from the border is necessary but not sufficient. A ball of
+    yarn with thirty loose strands encloses thirty loops of real background, and
+    sealing those is how `threadcore/error` came to ship sitting on a bright
+    green flower.
 
-    Returns how many pixels were restored, so the build can report it.
+    Colour settles it. `colorkey` only zeroes alpha and leaves RGB untouched, so
+    a region cut out of the artwork still holds the artwork's colours, while
+    genuine background still holds the plate's. Regions that look like the plate
+    stay transparent; regions that look like the character are restored — and
+    because their RGB survived the key, restoring alpha is all it takes to bring
+    them back correctly coloured.
+
+    Returns how many pixels were restored.
     """
 
+    key_rgb = _hex_rgb(key)
     reachable = bytearray(w * h)
     queue: deque[int] = deque()
 
@@ -202,11 +240,96 @@ def _seal_interior(raw: bytearray, w: int, h: int) -> int:
             push(i + w)
 
     sealed = 0
-    for i in range(w * h):
-        if raw[i * 4 + 3] < ALPHA_CUTOFF and not reachable[i]:
+    seen = bytearray(w * h)
+    for start in range(w * h):
+        if reachable[start] or seen[start] or raw[start * 4 + 3] >= ALPHA_CUTOFF:
+            continue
+        # Collect one enclosed region, then judge it as a whole: a per-pixel
+        # test would leave a speckled halo of the few pixels that fell either
+        # side of the threshold.
+        region = []
+        seen[start] = 1
+        stack = [start]
+        total = [0, 0, 0]
+        while stack:
+            i = stack.pop()
+            region.append(i)
+            total[0] += raw[i * 4]
+            total[1] += raw[i * 4 + 1]
+            total[2] += raw[i * 4 + 2]
+            x, y = i % w, i // w
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if 0 <= nx < w and 0 <= ny < h:
+                    j = ny * w + nx
+                    if not seen[j] and not reachable[j] and raw[j * 4 + 3] < ALPHA_CUTOFF:
+                        seen[j] = 1
+                        stack.append(j)
+
+        n = len(region)
+        mean = (total[0] / n, total[1] / n, total[2] / n)
+        if sum(abs(mean[c] - key_rgb[c]) for c in range(3)) < PLATE_DISTANCE:
+            continue  # genuinely background, just walled in by the artwork
+        for i in region:
             raw[i * 4 + 3] = 255
-            sealed += 1
+        sealed += n
     return sealed
+
+
+def _despill_edges(raw: bytearray, w: int, h: int) -> int:
+    """Repaint the contaminated ring of pixels along the silhouette.
+
+    A keyed edge pixel is a blend of the character and the plate behind it, so
+    it keeps a tint of the plate: measured across these skins, over half of all
+    edge pixels sat closer to the key colour than to the art. On a light
+    background that is invisible, which is why it survived this long; on a dark
+    desktop it is a green or cyan halo tracing the outline.
+
+    Rather than model the spill, each edge pixel takes the average colour of
+    its *interior* neighbours — pixels that are opaque and not themselves on
+    the edge, so uncontaminated by construction. Alpha is untouched, so the
+    silhouette does not change shape.
+    """
+
+    edge = bytearray(w * h)
+    for y in range(1, h - 1):
+        for x in range(1, w - 1):
+            i = y * w + x
+            if raw[i * 4 + 3] < ALPHA_CUTOFF:
+                continue
+            if (
+                raw[(i - 1) * 4 + 3] < ALPHA_CUTOFF
+                or raw[(i + 1) * 4 + 3] < ALPHA_CUTOFF
+                or raw[(i - w) * 4 + 3] < ALPHA_CUTOFF
+                or raw[(i + w) * 4 + 3] < ALPHA_CUTOFF
+            ):
+                edge[i] = 1
+
+    repainted = 0
+    updates: list[tuple[int, int, int, int]] = []
+    for y in range(1, h - 1):
+        for x in range(1, w - 1):
+            i = y * w + x
+            if not edge[i]:
+                continue
+            r = g = b = n = 0
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    j = i + dy * w + dx
+                    if j == i or edge[j] or raw[j * 4 + 3] < ALPHA_CUTOFF:
+                        continue
+                    r += raw[j * 4]
+                    g += raw[j * 4 + 1]
+                    b += raw[j * 4 + 2]
+                    n += 1
+            if n:
+                updates.append((i, r // n, g // n, b // n))
+
+    for i, r, g, b in updates:
+        raw[i * 4] = r
+        raw[i * 4 + 1] = g
+        raw[i * 4 + 2] = b
+        repainted += 1
+    return repainted
 
 
 def _write_png_rgba(path: Path, w: int, h: int, raw: bytes) -> None:
@@ -243,7 +366,8 @@ def build_frame(src: Path, key: str, crop: tuple[int, int, int, int], gif_out: P
     expected = FRAME_SIZE * FRAME_SIZE * 4
     if len(raw) < expected:
         raise RuntimeError(f"{src}: expected {expected} bytes of RGBA, got {len(raw)}")
-    sealed = _seal_interior(raw, FRAME_SIZE, FRAME_SIZE)
+    sealed = _seal_interior(raw, FRAME_SIZE, FRAME_SIZE, key)
+    _despill_edges(raw, FRAME_SIZE, FRAME_SIZE)
     _write_png_rgba(png_out, FRAME_SIZE, FRAME_SIZE, bytes(raw[:expected]))
 
     # The GIF is derived from the sealed PNG, not re-keyed from the source, so
@@ -279,6 +403,7 @@ def build_skin(skin: str) -> dict:
     keys = {src: chroma_key_hex(src) for _state, src in frames}
 
     union: tuple[float, float, float, float] | None = None
+    boxes: dict[Path, tuple[float, float, float, float]] = {}
     for _state, src in frames:
         box, coverage = alpha_bbox(src, keys[src])
         if box is None:
@@ -289,6 +414,7 @@ def build_skin(skin: str) -> dict:
         if coverage > 0.85:
             print(f"  ! {src.relative_to(ROOT)} key {keys[src]} left {coverage:.0%} opaque, ignoring for crop")
             continue
+        boxes[src] = box
         union = box if union is None else (
             min(union[0], box[0]), min(union[1], box[1]),
             max(union[2], box[2]), max(union[3], box[3]),
@@ -300,8 +426,9 @@ def build_skin(skin: str) -> dict:
     for state, src in frames:
         gif = SKIN_ROOT / skin / state / f"{src.stem}.gif"
         png = WEB_ROOT / skin / state / f"{src.stem}.png"
-        # One relative crop, resolved into each frame's own resolution.
-        crop = square_crop(union, *_probe_size(src))
+        # Sized from the skin, positioned from this pose, in this frame's own
+        # resolution — the sources arrive at 360, 1024 and 1254px.
+        crop = square_crop(union, *_probe_size(src), frame=boxes.get(src))
         sealed = build_frame(src, keys[src], crop, gif, png)
         built.setdefault(state, []).append(gif.name)
         note = f" sealed={sealed}px" if sealed else ""

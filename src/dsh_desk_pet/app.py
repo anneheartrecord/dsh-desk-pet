@@ -468,8 +468,16 @@ class DeskPetApp:
         Never calls `deiconify`: mapping is the one Tk operation that blocks
         forever when there is no window server, and this has to stay runnable
         in CI and under a sandbox.
+
+        Runs read-only. A diagnostic that switches skin to prove switching works
+        must not leave that skin persisted — running `--probe` used to rewrite
+        the user's saved skin and size, so their next real launch came up as a
+        half-size threadcore for no visible reason, and `quit()` deleted the
+        live pet's state file on the way out.
         """
 
+        self.publish_state = False
+        self.save_prefs = False
         self._build(mapped=False)
         assert self._root is not None
         base = self.clock()

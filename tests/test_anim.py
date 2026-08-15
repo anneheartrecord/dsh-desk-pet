@@ -58,6 +58,24 @@ class AutoTimelineTests(unittest.TestCase):
         transitions = sum(1 for a, b in zip(samples, samples[1:]) if a == 0 and b == 1)
         self.assertGreaterEqual(transitions, 2, "expected a double blink")
 
+    def test_three_frame_idle_passes_through_the_half_lid_both_ways(self) -> None:
+        """A blink that cuts straight to shut reads as a glitch, not an eyelid."""
+
+        tl = auto_timeline("idle", 3)
+        samples = sequence_frames(tl, step_ms=10, span_ms=tl.total_ms)
+        runs = [f for f, _ in ((s, None) for s in samples)]
+        collapsed = [k for k, _ in zip(runs, runs[1:] + [None]) if k is not _]
+        # Every transition into or out of the shut frame goes via frame 2.
+        for before, current, after in zip(collapsed, collapsed[1:], collapsed[2:]):
+            if current == 1:
+                self.assertEqual(before, 2, "eyes snapped shut without the half-lid")
+                self.assertEqual(after, 2, "eyes snapped open without the half-lid")
+
+    def test_three_frame_idle_still_spends_most_time_open(self) -> None:
+        tl = auto_timeline("idle", 3)
+        samples = sequence_frames(tl, step_ms=10, span_ms=tl.total_ms)
+        self.assertGreater(samples.count(0) / len(samples), 0.75)
+
     def test_every_state_cycles_through_all_of_its_frames(self) -> None:
         for state in ("idle", "working", "waiting", "error", "happy", "sleeping"):
             for count in (2, 3, 5):
