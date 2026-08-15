@@ -69,6 +69,36 @@ class ObserverTests(unittest.TestCase):
         activity = observe_activity(home=self.home, process_running=True)
         self.assertEqual(map_activity(activity), "waiting")
 
+    def test_quiet_sessions_never_shell_out_to_ps(self) -> None:
+        """`ps -ax` costs ~55ms and the pet polls at 600ms, so the idle path —
+        which is nearly all of its life — must not reach it."""
+
+        import dsh_desk_pet.observer as observer
+
+        called = []
+        original = observer._dsh_process_running
+        observer._dsh_process_running = lambda *a, **k: called.append(1) or False
+        try:
+            observe_activity(home=self.home)
+        finally:
+            observer._dsh_process_running = original
+        self.assertEqual(called, [], "shelled out to ps with nothing happening")
+
+    def test_only_the_tail_of_a_session_file_is_read(self) -> None:
+        """A long session's jsonl reaches tens of MB; reading all of it 1.6
+        times a second is what shows up in Activity Monitor."""
+
+        from dsh_desk_pet.observer import TAIL_BYTES, _kind_from_session_tail
+
+        sessions = self.home / "sessions"
+        sessions.mkdir(parents=True)
+        padding = '{"kind":"working"}\n' * 200
+        log = sessions / "big.jsonl"
+        log.write_text(padding + "x" * (TAIL_BYTES * 3) + '\n{"kind":"failed"}\n', encoding="utf-8")
+        # The early "working" records are far outside the tail window, so only
+        # the last record can be what comes back.
+        self.assertEqual(_kind_from_session_tail(self.home), "failed")
+
     def test_unreadable_home_does_not_raise(self) -> None:
         activity = observe_activity(home=Path("/definitely/not/here"), process_running=False)
         self.assertEqual(map_activity(activity), "idle")

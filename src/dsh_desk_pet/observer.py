@@ -16,6 +16,9 @@ from .mapper import AgentActivity
 # pet to mistake itself for a running agent.
 _DSH_PROC_MARKERS = ("@deepseek-ai/dsh", "deepseek-harness", "/dsh ", " dsh web")
 
+# How much of the newest session file to read when looking for the last record.
+TAIL_BYTES = 64 * 1024
+
 
 def default_dsh_home() -> Path:
     override = os.environ.get("DSH_HOME")
@@ -124,7 +127,13 @@ def _kind_from_session_tail(home: Path) -> str | None:
     if newest_path is None:
         return None
     try:
-        text = newest_path.read_text(encoding="utf-8", errors="replace")
+        # Only the tail. A long-running session's jsonl reaches tens of MB, and
+        # reading all of it 1.6 times a second to look at the last record is the
+        # kind of cost that shows up in Activity Monitor.
+        with newest_path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            handle.seek(max(0, handle.tell() - TAIL_BYTES))
+            text = handle.read().decode("utf-8", errors="replace")
     except OSError:
         return None
     last_kind: str | None = None
@@ -171,6 +180,18 @@ def observe_activity(
     if hinted is not None:
         return hinted
 
+    # Cheap checks first, and let them short-circuit the expensive one. `ps -ax`
+    # costs ~55ms; at a 600ms cadence that is most of a tenth of a core, all
+    # day, for a decorative widget. Its answer only matters when a session file
+    # was also written recently, and finding that out costs 0.2ms — so when
+    # nothing has been written, `ps` never runs at all, which is the case the
+    # pet spends almost all of its life in.
+    newest = _newest_session_mtime(dsh_home)
+    clock = time.time() if now is None else now
+    recently_written = newest is not None and (clock - newest) <= recent_seconds
+    if not recently_written and process_running is None:
+        return AgentActivity(kind="none")
+
     tail_kind = _kind_from_session_tail(dsh_home)
     if tail_kind:
         lowered = tail_kind.lower()
@@ -182,9 +203,6 @@ def observe_activity(
             return AgentActivity(kind="working")
 
     running = _dsh_process_running() if process_running is None else process_running
-    newest = _newest_session_mtime(dsh_home)
-    clock = time.time() if now is None else now
-    recently_written = newest is not None and (clock - newest) <= recent_seconds
 
     if running and recently_written:
         return AgentActivity(kind="working")

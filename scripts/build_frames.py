@@ -455,6 +455,12 @@ def build_skin(skin: str) -> dict:
         print(f"  {skin}/{state}/{src.stem}  key={keys[src]} crop={crop}{note}")
 
     states = {state: sorted(names) for state, names in built.items()}
+
+    # Where the character actually sits inside the finished frame. The window
+    # is sized from this rather than from the frame, because the frame is
+    # square with padding and the window is a rectangle that swallows every
+    # click landing on it — padding is dead screen.
+    subject = _subject_box(SKIN_ROOT / skin)
     # Bake the rhythm into the manifest so the browser overlay plays the exact
     # same loop as the desktop window instead of reimplementing the timing.
     timelines = {
@@ -466,9 +472,35 @@ def build_skin(skin: str) -> dict:
     return {
         "keys": {f"{src.parent.name}/{src.stem}": keys[src] for _state, src in frames},
         "crop_relative": [round(v, 4) for v in union],
+        "subject_box": subject,
         "states": states,
         "timelines": timelines,
     }
+
+
+def _subject_box(skin_dir: Path) -> list[int]:
+    """Union bbox of the drawn character across every built frame of a skin.
+
+    In final-frame pixels, so the runtime can size its window to the animal
+    rather than to the padded square it is drawn on.
+    """
+
+    x0, y0, x1, y1 = FRAME_SIZE, FRAME_SIZE, 0, 0
+    for gif in sorted(skin_dir.glob("*/*.gif")):
+        raw = _raw_rgba(gif, "null")
+        if len(raw) < FRAME_SIZE * FRAME_SIZE * 4:
+            continue
+        alphas = raw[3::4]
+        for y in range(FRAME_SIZE):
+            base = y * FRAME_SIZE
+            row = [x for x in range(FRAME_SIZE) if alphas[base + x] >= ALPHA_CUTOFF]
+            if not row:
+                continue
+            x0, x1 = min(x0, row[0]), max(x1, row[-1])
+            y0, y1 = min(y0, y), max(y1, y)
+    if x1 <= x0:
+        return [0, 0, FRAME_SIZE - 1, FRAME_SIZE - 1]
+    return [x0, y0, x1, y1]
 
 
 def main() -> int:
