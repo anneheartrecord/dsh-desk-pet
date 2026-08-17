@@ -1,6 +1,6 @@
 """Small persisted preferences: where the pet sits, how big it is, which skin.
 
-Separate from `bridge`, which publishes *live* state for the page overlay to
+Separate from `bridge`, which publishes *live* state for the instance guard to
 read. This is the other direction — things the user set that must survive a
 restart. Dragging the pet somewhere and having it jump back to the top-left
 every time `dsh web` restarts is the kind of detail that makes a desk pet feel

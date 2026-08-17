@@ -29,8 +29,9 @@ class PackageTests(unittest.TestCase):
     def test_identifies_as_a_dsh_bundle(self) -> None:
         self.assertEqual(self.pkg["name"], "dsh-desk-pet")
         self.assertEqual(self.pkg["dsh"]["bundle"]["patch"], "./cordis.patch.yml")
-        self.assertEqual(self.pkg["dsh"]["client"]["platform"], "web")
         self.assertIn("dsh-plugin", self.pkg["keywords"])
+        # Deliberately no `dsh.client`: this plugin has no page-side half.
+        # ShippedSurfaceTests asserts that absence with the reason attached.
 
     def test_cordis_patch_inserts_the_plugin(self) -> None:
         self.assertIn("id: dsh-desk-pet", _read("cordis.patch.yml"))
@@ -84,26 +85,65 @@ class HostPluginTests(unittest.TestCase):
     def test_exports_the_cordis_surface(self) -> None:
         self.assertIn("export function apply", self.plugin)
         self.assertIn("export const name = 'dsh-desk-pet'", self.plugin)
-        self.assertIn("tapIndex", self.plugin)
 
-    def test_serves_state_manifest_and_frames(self) -> None:
-        for route in ("/dsh-desk-pet/state", "/dsh-desk-pet/manifest.json", "/dsh-desk-pet/frames/"):
-            self.assertIn(route, self.plugin, f"{route} is not served")
+    def test_launches_the_desktop_pet(self) -> None:
+        self.assertIn("spawn(", self.plugin)
+        self.assertIn("bin", self.plugin)
 
-    def test_every_registered_route_is_torn_down(self) -> None:
-        """A route left registered survives plugin removal and 404s forever."""
+    def test_serves_nothing_to_the_page(self) -> None:
+        """The in-page pet is gone on purpose; two pets read as a bug.
 
-        registered = self.plugin.count("ctx.webServer.register(")
-        for handle in ("unstate()", "unmanifest()", "unoverlay()", "unframes()", "untap()"):
-            self.assertIn(handle, self.plugin, f"{handle} missing from teardown")
-        self.assertEqual(registered, 4, "a route was added without a teardown assertion")
+        Asserted as an absence because that is what keeps it gone: the mirror
+        was where the failures lived, and adding a route back would quietly
+        recreate the surface that produced them.
+        """
 
-    def test_frame_route_refuses_to_escape_the_asset_root(self) -> None:
-        self.assertIn("safeJoin", self.plugin)
-        self.assertIn("startsWith(prefix)", self.plugin)
+        for gone in ("webServer.register", "tapIndex", "overlay", "/frames"):
+            self.assertNotIn(gone, self.plugin, f"{gone} puts a pet back in the page")
 
-    def test_state_route_degrades_instead_of_failing(self) -> None:
-        self.assertIn("live: false", self.plugin)
+    def test_gates_on_the_web_server_without_using_it(self) -> None:
+        """The injection is a gate, not a dependency.
+
+        It keeps a window from appearing during a headless or scheduled run,
+        where a pet popping onto the screen would be a fault rather than a
+        feature. Removing the injection is what would break that.
+        """
+
+        self.assertIn("export const inject = ['webServer']", self.plugin)
+
+    def test_reports_why_the_pet_died(self) -> None:
+        """A pet that silently fails to appear is indistinguishable from one
+        that is merely invisible, which cost real debugging time."""
+
+        self.assertIn("stdio: ['ignore', 'pipe', 'pipe']", self.plugin)
+        self.assertIn("desktop companion exited", self.plugin)
+
+    def test_stops_the_pet_on_teardown(self) -> None:
+        self.assertIn("ctx.effect(", self.plugin)
+        self.assertIn("child.kill()", self.plugin)
+
+
+class ShippedSurfaceTests(unittest.TestCase):
+    def test_the_page_side_files_are_gone(self) -> None:
+        for name in ("overlay.js", "client.js"):
+            self.assertFalse(
+                (ROOT / "plugin" / name).exists(),
+                f"plugin/{name} came back; the page pet was removed deliberately",
+            )
+
+    def test_the_manifest_no_longer_advertises_a_client(self) -> None:
+        pkg = json.loads(_read("package.json"))
+        self.assertNotIn("client", pkg["dsh"], "DSH would look for a client module")
+        self.assertNotIn("./client", pkg["exports"])
+
+    def test_the_frames_the_renderer_plays_still_ship(self) -> None:
+        """`assets/web` is named for a surface that no longer exists, but it is
+        the tree the desktop renderer reads — every call site passes web=True.
+        Deleting it while removing 'the web pet' would delete all the art."""
+
+        pkg = json.loads(_read("package.json"))
+        self.assertIn("assets/web", pkg["files"])
+        self.assertTrue((ROOT / "assets" / "web" / "deepseek" / "idle" / "00.png").is_file())
 
 
 @unittest.skipUnless(NODE, "node not on PATH")
@@ -112,49 +152,22 @@ class ParseTests(unittest.TestCase):
     not a failing test — it is the whole plugin silently not loading."""
 
     def test_every_shipped_script_parses(self) -> None:
-        for name in ("index.mjs", "overlay.js", "client.js"):
+        for name in ("index.mjs",):
             proc = subprocess.run(
                 [NODE, "--check", str(ROOT / "plugin" / name)],
                 capture_output=True, text=True, timeout=60,
             )
             self.assertEqual(proc.returncode, 0, f"{name}: {proc.stderr[:400]}")
 
-    def test_routes_answer_against_a_stand_in_cordis_context(self) -> None:
+    def test_applies_against_a_stand_in_cordis_context(self) -> None:
         """Runs `apply()` for real. Everything else here only reads the source,
-        which cannot tell a registered route from one that throws on its first
-        request."""
+        which cannot tell a plugin that loads from one that throws on apply."""
 
         proc = subprocess.run(
             [NODE, str(ROOT / "tests" / "plugin_smoke.mjs")],
             capture_output=True, text=True, timeout=120, cwd=str(ROOT),
         )
         self.assertEqual(proc.returncode, 0, proc.stdout[-2000:] + proc.stderr[-800:])
-
-
-class OverlayTests(unittest.TestCase):
-    def test_overlay_mounts_once_and_uses_real_frames(self) -> None:
-        overlay = _read("plugin", "overlay.js")
-        self.assertIn("dsh-desk-pet-root", overlay)
-        self.assertIn("__dshDeskPetMounted", overlay)
-        # Paths are built from a BASE constant, so assert the pieces, not the
-        # joined literal — otherwise this passes only by accident of spelling.
-        self.assertIn('BASE = "/dsh-desk-pet"', overlay)
-        self.assertIn('"/frames/"', overlay)
-        self.assertIn('BASE + "/state"', overlay)
-        self.assertIn('BASE + "/manifest.json"', overlay)
-
-    def test_overlay_does_not_hand_draw_a_second_pet(self) -> None:
-        """The page pet must mirror the desktop one, not re-invent it."""
-
-        overlay = _read("plugin", "overlay.js")
-        self.assertNotIn("<ellipse", overlay)
-        self.assertNotIn("<svg", overlay)
-
-    def test_client_module_defers_to_the_same_overlay(self) -> None:
-        client = _read("plugin", "client.js")
-        self.assertIn("__ModuleLoader__", client)
-        self.assertIn("/dsh-desk-pet/overlay.js", client)
-        self.assertNotIn("<ellipse", client)
 
 
 if __name__ == "__main__":

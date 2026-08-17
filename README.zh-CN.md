@@ -37,7 +37,7 @@ dsh plugin --profile web add dsh-desk-pet
 dsh web
 ```
 
-宠物会浮在桌面上，DSH 页面右下角还有一只同步的镜像。
+宠物会浮在桌面上，盖在你正在用的任何窗口之上。DSH 页面本身不会被塞任何东西。
 
 不要 DSH、只开宠物：`npx dsh-desk-pet`。
 
@@ -107,7 +107,9 @@ echo '{"kind":"working"}' > ~/.dsh/pet-activity.json
 rm ~/.dsh/pet-activity.json          # 交还给自动检测
 ```
 
-只有桌面这只在观察 DSH。它把看到的写进 `~/.dsh-desk-pet/state.json`，网页那只读这个文件。「agent 在干什么」只有一份实现，不是两份会互相打架的。
+宠物把看到的写进 `~/.dsh-desk-pet/state.json`，第二次启动靠它判断是不是已经有一只在跑，`--stop` 也靠它找进程。
+
+页面里曾经还有一只镜像，已经删了：一个屏幕上两只宠物看着像 bug，而且出问题的一直是那只镜像。真正值得留的是浮在所有窗口之上的那个窗口。
 
 ### 为什么是 AppKit 不是 Tk
 

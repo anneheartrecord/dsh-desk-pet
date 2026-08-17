@@ -7,8 +7,8 @@ claw-on-desk do, which a `<div>` in the page can never do.
 This file owns the loop and nothing else. `observer` decides what DSH is doing,
 `runtime` decides what the pet should therefore be, `packs` and `anim` decide
 which frame that means right now, `nswindow` puts it on screen, and `bridge`
-tells the in-page mirror. Each of those is testable without a display; this is
-the only part that needs one.
+publishes it for the instance guard and for `--stop`. Each of those is testable
+without a display; this is the only part that needs one.
 
 The renderer is AppKit rather than Tk because macOS ships Tk 8.5.9 from 2010,
 and on macOS 26 its drawing path no longer reaches the screen — see
@@ -234,10 +234,10 @@ class DeskPetApp:
             self.save_prefs = False
 
     def _publish(self, at_ms: int) -> None:
-        """Mirror skin/state to disk for the in-page overlay.
+        """Write skin/state to disk for anything asking from outside.
 
-        On change, and otherwise on a heartbeat: the page decides whether the
-        desktop pet is alive by how fresh this file is, so a pet that sat in one
+        On change, and otherwise on a heartbeat: a second launch decides whether
+        a pet is already running by how fresh this file is, so a pet that sat in one
         state for a minute must not look like a pet that died a minute ago.
         """
 
@@ -340,7 +340,8 @@ class DeskPetApp:
             self.window.close()
             self.window = None
         if self.publish_state:
-            # Otherwise the page overlay keeps animating a pet that is gone.
+            # Otherwise the next launch reads a fresh-looking file and refuses
+            # to start, believing this pet is still alive.
             try:
                 bridge.clear()
             except OSError:

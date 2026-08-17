@@ -1,11 +1,17 @@
 #!/usr/bin/env /usr/bin/python3
 """Turn chroma-key stills in assets/source into shipped, transparent frames.
 
-Two outputs per source frame, because the two players cannot read the same file:
+Two outputs per source frame, of which only one is still played:
 
-* ``assets/skins/<skin>/<state>/NN.gif`` — palette GIF with a transparent index.
-  macOS ships Tk 8.5, whose ``PhotoImage`` reads GIF and nothing else.
-* ``assets/web/<skin>/<state>/NN.png`` — straight RGBA for the in-page overlay.
+* ``assets/web/<skin>/<state>/NN.png`` — straight RGBA. **This is the tree the
+  pet renders from**, whatever its name suggests: every call into `packs` passes
+  ``web=True``. The name is left over from an in-page pet that no longer exists,
+  and it is a trap worth stating outright — deleting "the web assets" deletes all
+  the art.
+* ``assets/skins/<skin>/<state>/NN.gif`` — palette GIF with a transparent index,
+  for Tk's ``PhotoImage``, which reads GIF and nothing else. Nothing loads these
+  now that the renderer is AppKit; they are still built so the format is one
+  command away, but they are excluded from the published package.
 
 Cropping is decided once per skin, not per frame: a union bbox keeps every state
 on the same baseline so switching state does not make the pet jump or resize.
@@ -500,8 +506,8 @@ def build_skin(skin: str) -> dict:
     # square with padding and the window is a rectangle that swallows every
     # click landing on it — padding is dead screen.
     subject = _subject_box(SKIN_ROOT / skin)
-    # Bake the rhythm into the manifest so the browser overlay plays the exact
-    # same loop as the desktop window instead of reimplementing the timing.
+    # Bake the rhythm into the manifest rather than leaving it in code, so the
+    # timing travels with the art and a rebuilt skin cannot drift out of step.
     timelines = {
         state: [list(step) for step in auto_timeline(state, len(names)).steps]
         for state, names in states.items()

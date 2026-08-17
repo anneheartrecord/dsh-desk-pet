@@ -1,14 +1,21 @@
-"""Publish what the desktop pet is doing so the in-page overlay can mirror it.
+"""Publish what the desktop pet is doing, as a small JSON file on disk.
 
-There are two pets — a Tk window and a `<div>` injected into the DSH page — and
-only one of them can watch the agent. Running the observer twice would let them
-disagree, and polling DSH from Node would mean a second implementation of the
-same heuristics. So the desktop process is the single authority: it writes a
-tiny JSON file, and the plugin's HTTP route just reads it back out.
+Written for two readers that are not the pet itself:
 
-The write is atomic (temp file + rename) because the route may read it mid-write
-at any moment, and a half-written file would show up as a parse error in the
-browser rather than a stale-but-valid state.
+* the instance guard, which needs to know whether a pet is *already* running
+  before a second one puts a duplicate window on screen. A pid alone cannot say
+  that — pids are reused — so the file carries a wall-clock stamp too, and only
+  a fresh stamp beside a living pid counts as alive.
+* anything asking from outside: `--stop` finds the process this way, and
+  `--probe` reports from it.
+
+This once fed a second pet mirrored into the DSH page, which is why the file has
+a full skin/state payload rather than just a pid. That surface is gone; the
+payload stays because it is what makes the pet inspectable without a display.
+
+The write is atomic (temp file + rename) because a reader may arrive mid-write
+at any moment, and a half-written file would read as corrupt rather than as
+stale-but-valid state.
 """
 
 from __future__ import annotations

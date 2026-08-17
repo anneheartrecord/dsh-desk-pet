@@ -38,8 +38,8 @@ dsh plugin --profile web add dsh-desk-pet
 dsh web
 ```
 
-The pet appears on your desktop, and a synced mirror sits in the bottom-right
-of the DSH page.
+The pet appears on your desktop, floating above whatever you are working in.
+Nothing is added to the DSH page itself.
 
 Pet only, no DSH: `npx dsh-desk-pet`.
 
@@ -114,9 +114,12 @@ echo '{"kind":"working"}' > ~/.dsh/pet-activity.json
 rm ~/.dsh/pet-activity.json          # back to automatic
 ```
 
-The desktop pet is the only thing that watches DSH. It publishes what it sees
-to `~/.dsh-desk-pet/state.json`, and the in-page mirror reads that — one
-implementation of "what is the agent doing", rather than two that can disagree.
+The pet publishes what it sees to `~/.dsh-desk-pet/state.json`, which is how a
+second launch knows one is already running and how `--stop` finds it.
+
+There was briefly a second pet mirrored into the DSH page. It is gone: two pets
+on one screen read as a bug, and the mirror was where the failures lived. The
+window that floats over everything is the thing worth having.
 
 ### Why AppKit and not Tk
 

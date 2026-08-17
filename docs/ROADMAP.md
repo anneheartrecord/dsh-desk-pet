@@ -54,6 +54,20 @@ The panel lists sessions but they do not do anything. Clicking one should
 attach to that session. This needs a way to talk to DSH rather than just read
 its files, which is a bigger change than it looks.
 
+### Names left over from the in-page pet
+
+Two pieces of vestigial naming, both mechanical to fix and both currently traps:
+
+- **`assets/web/` is what the pet renders from.** Every call into `packs` passes
+  `web=True`. The name says otherwise, so "remove the web assets" would delete
+  all the art. `assets/frames/` would say what it is.
+- **`packs` still takes a `web` flag, defaulting to `False`** — that is,
+  defaulting to the GIF tree nothing reads. Shipped code always passes `True`;
+  only tests use the default.
+
+Worth doing together with dropping GIF generation from `build_frames.py`, since
+the flag exists only to choose between the two formats.
+
 ## Not planned
 
 - **Windows and Linux.** The renderer is AppKit through `ctypes`. A port would
