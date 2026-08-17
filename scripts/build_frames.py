@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import struct
 import subprocess
 import sys
@@ -57,6 +58,12 @@ ALPHA_CUTOFF = 160
 # Where the bottom of the body sits inside the square crop. Shared by every
 # skin so switching skin does not move the pet vertically.
 BASELINE_RATIO = 0.94
+# How much of the finished frame the character should cover. Every skin is
+# scaled to hit this, so switching skin does not change the pet's apparent size.
+TARGET_COVERAGE = 0.32
+# How much plate `build_frame` adds around a source before cropping. The crop
+# may use it, so `square_crop` must know the same number.
+SOURCE_PAD_RATIO = 0.3
 # Sum-of-channel distance under which an enclosed region counts as the plate
 # showing through rather than artwork the key removed.
 PLATE_DISTANCE = 150
@@ -169,13 +176,19 @@ def square_crop(
     h: int,
     frame: tuple[float, float, float, float] | None = None,
     pad_ratio: float = 0.06,
+    area_px: float = 0.0,
 ) -> tuple[int, int, int, int]:
     """Square crop for one frame: sized from the skin, positioned from the pose.
 
     Two different jobs, deliberately fed by two different boxes.
 
-    *Size* comes from the skin's union box, so every frame of a skin is drawn at
-    the same scale and the character never grows or shrinks between states.
+    *Size* comes from the skin's drawn area, not its bounding box, so every skin
+    reads as the same-sized animal. Sizing by the box made the DeepSeek whale
+    fill 52% of its frame against ~30% for the others: it is a round shape that
+    nearly fills its own box, where a whale with a raised tail leaves most of
+    its box empty. The eye reads ink, not extents. `area_px` is how much of the
+    source the character actually covers, and the crop is sized so that lands at
+    `TARGET_COVERAGE` of the output.
 
     *Position* comes from this frame's own box, anchored so the bottom of the
     body lands at `BASELINE_RATIO`. Anchoring on the union instead let each pose
@@ -185,8 +198,23 @@ def square_crop(
     """
 
     ux0, uy0, ux1, uy1 = union[0] * w, union[1] * h, union[2] * w, union[3] * h
-    side = max(ux1 - ux0, uy1 - uy0) * (1 + pad_ratio * 2)
-    side = int(round(min(side, w, h)))
+    box_w, box_h = ux1 - ux0, uy1 - uy0
+
+    if area_px:
+        # A crop of `side` shows `area_px` of ink; we want that to be
+        # TARGET_COVERAGE of the result, so side = sqrt(area / target).
+        side = math.sqrt(area_px / TARGET_COVERAGE)
+        # Never crop tighter than the subject itself, whatever the arithmetic
+        # says — a pose wider than the target would get its edges cut off.
+        side = max(side, box_w * (1 + pad_ratio), box_h * (1 + pad_ratio))
+    else:
+        side = max(box_w, box_h) * (1 + pad_ratio * 2)
+    # Deliberately not clamped to the source size. `build_frame` pads the source
+    # with plate colour first, so a crop wider than the original simply picks up
+    # background — and clamping here is what kept the DeepSeek whale oversized:
+    # its art is drawn large in its own frame, so hitting the target coverage
+    # needs a crop bigger than the source it came from.
+    side = int(round(min(side, (w + 2 * SOURCE_PAD_RATIO * min(w, h)))))
 
     box = frame or union
     fx0, fy1 = box[0] * w, box[3] * h
@@ -372,7 +400,7 @@ def build_frame(src: Path, key: str, crop: tuple[int, int, int, int], gif_out: P
     # off the edge simply lands on background instead of having to be clamped
     # back inside — clamping moves the character within the frame, which is the
     # one thing the baseline anchoring exists to prevent.
-    pad = int(round(0.3 * min(w, h)))
+    pad = int(round(SOURCE_PAD_RATIO * min(w, h)))
     base = (
         f"pad={w + 2 * pad}:{h + 2 * pad}:{pad}:{pad}:color={key.replace('0x', '#')},"
         f"{_key_filter(key)},"
@@ -424,6 +452,10 @@ def build_skin(skin: str) -> dict:
 
     union: tuple[float, float, float, float] | None = None
     boxes: dict[Path, tuple[float, float, float, float]] = {}
+    # Fraction of the source each pose actually inks. The median across a
+    # skin's poses is what sets its scale — the mean would let one sprawling
+    # celebration pose shrink every other frame.
+    coverages: list[float] = []
     for _state, src in frames:
         box, coverage = alpha_bbox(src, keys[src])
         if box is None:
@@ -435,6 +467,7 @@ def build_skin(skin: str) -> dict:
             print(f"  ! {src.relative_to(ROOT)} key {keys[src]} left {coverage:.0%} opaque, ignoring for crop")
             continue
         boxes[src] = box
+        coverages.append(coverage)
         union = box if union is None else (
             min(union[0], box[0]), min(union[1], box[1]),
             max(union[2], box[2]), max(union[3], box[3]),
@@ -448,7 +481,13 @@ def build_skin(skin: str) -> dict:
         png = WEB_ROOT / skin / state / f"{src.stem}.png"
         # Sized from the skin, positioned from this pose, in this frame's own
         # resolution — the sources arrive at 360, 1024 and 1254px.
-        crop = square_crop(union, *_probe_size(src), frame=boxes.get(src))
+        src_w, src_h = _probe_size(src)
+        median = sorted(coverages)[len(coverages) // 2] if coverages else 0.0
+        crop = square_crop(
+            union, src_w, src_h,
+            frame=boxes.get(src),
+            area_px=median * src_w * src_h,
+        )
         sealed = build_frame(src, keys[src], crop, gif, png)
         built.setdefault(state, []).append(gif.name)
         note = f" sealed={sealed}px" if sealed else ""
