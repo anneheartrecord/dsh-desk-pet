@@ -1,117 +1,173 @@
 # DSH Desk Pet
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Language](https://img.shields.io/badge/language-Python-3776AB.svg)](src/dsh_desk_pet)
-[![dsh-plugin](https://img.shields.io/badge/topic-dsh--plugin-111111.svg)](https://github.com/topics/dsh-plugin)
+<p align="center">
+  <img src="docs/media/idle.gif" width="180" alt="The DeepSeek whale, breathing and blinking">
+</p>
 
-盖在所有窗口之上的桌面宠物，跟着本地 DSH 的状态自己变表情。默认鲸鱼，四套皮肤。
+<p align="center">
+  <b>A desk pet that shows you what your agent is doing.</b><br>
+  It floats above every window — including fullscreen — and changes expression
+  as DSH works, waits, finishes or fails.
+</p>
 
-不是网页里的挂件——是一个无边框透明的系统窗口。DSH 页面里那只是它的镜像。
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+  <img src="https://img.shields.io/badge/python-system%20only-3776AB.svg" alt="System Python">
+  <img src="https://img.shields.io/badge/dependencies-none-2ea44f.svg" alt="No dependencies">
+  <a href="https://github.com/topics/dsh-plugin"><img src="https://img.shields.io/badge/topic-dsh--plugin-111111.svg" alt="dsh-plugin"></a>
+</p>
 
-[English](README_EN.md)
+<p align="center">
+  <img src="docs/media/states.png" width="720" alt="idle, working, waiting, error, happy, sleeping">
+</p>
+<p align="center">
+  <sub>idle · working · waiting · error · happy · sleeping</sub>
+</p>
 
-## 安装
+<p align="center"><a href="README.zh-CN.md">中文</a></p>
 
-已有 DSH，一条命令：
+---
+
+## Install
+
+With DSH already set up, one command:
 
 ```bash
 dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
-```
-
-macOS 用系统自带的 `/usr/bin/python3`，不需要装任何依赖。
-
-## 启动
-
-```bash
 dsh web
 ```
 
-宠物会自己浮在桌面上。DSH 页面右下角还有一只同步的镜像。
+The pet appears on your desktop, and a synced mirror sits in the bottom-right
+of the DSH page.
 
-不要 DSH、只开宠物：克隆后执行 `./bin/dsh-desk-pet`。
+Pet only, no DSH: clone the repo and run `./bin/dsh-desk-pet`.
 
-## 已知限制
+**No dependencies.** It runs on the system `/usr/bin/python3` and talks to
+AppKit through `ctypes`. Nothing to install, nothing to build.
 
-**全屏 app。** Tk 自己只有布尔的「置顶」，跨不过 macOS 全屏应用独占的 Space。所以本插件绕过 Tk，用标准库 `ctypes` 直接调 AppKit（`src/dsh_desk_pet/macwindow.py`）：把 NSWindow 提到辅助功能层级，并设成可加入所有 Space——和 Electron 桌宠同一套机制，只是不需要装任何依赖。调不通的机器会自动退回普通置顶，那时全屏会盖住它。
+## Use
 
-**为什么有个浅色底板？** 默认不透明是实测后的选择。macOS 自带的 Tk 8.5.9 上，`-transparent` 会把**整个窗体**合成为空——Tk 报告窗口已映射、可见、坐标正确、精灵在画布上，截图里却是一片空桌面。镂空更好看，但看不见的宠物不是宠物。你的 Tk 支持的话可以开回来：
+| | |
+|---|---|
+| **Drag** | Grab it anywhere. Where you leave it is where it starts next time. |
+| **Click** | Opens the session list — which DSH sessions exist, which is live, what it is doing. Click again to close. |
+| **Right-click** | Cycles skins. |
+| **Stop** | `./bin/dsh-desk-pet --stop`, or stop `dsh web`. |
 
-```bash
-./bin/dsh-desk-pet --transparent
-```
+It starts in the background and detaches from your terminal, so you can close
+the window you launched it from.
 
-## 使用
+## States
 
-- **拖**：按住身体任意处。
-- **点一下**：它会跳一下；在打盹的话会被叫醒。
-- **换肤**：右键（或 Control+点击）出菜单，也可以按 `1`–`4`。换肤不改状态。
-- **关掉**：`Esc` 或 `q`，或右键菜单里选退出。
+Driven by your local DSH. Nothing to configure.
 
-## 状态
-
-跟着本地 DSH 自动变，不用管。
-
-| 状态 | 什么时候 |
+| State | When |
 | --- | --- |
-| 空闲 | 没事干，会呼吸、偶尔眨眼 |
-| 干活 | DSH 正在跑 |
-| 等你 | 卡在确认、授权、要你输入 |
-| 报错 | 跑挂了 |
-| 开心 | 刚跑完一轮，几秒后自己回到空闲 |
-| 睡着 | agent 没事干**且**你的鼠标也不动了才打盹；一有动静或者你戳它就醒 |
+| **idle** | Nothing to do — breathes, blinks now and then |
+| **working** | DSH is running |
+| **waiting** | Blocked on a confirmation, approval, or your input |
+| **error** | The run failed |
+| **happy** | A run just finished; settles back to idle after a few seconds |
+| **sleeping** | Dozes when the agent is idle **and** your pointer has stopped moving. Any activity, or a poke, wakes it. |
 
-## 皮肤
+That last one takes two clocks on purpose: an agent with nothing to do is not
+the same thing as a desk with nobody at it.
 
-| 圆点 | id |
-| --- | --- |
-| 蓝 | `whale`（默认） |
-| 橙 | `threadcore` |
-| 棕 | `nautilus` |
-| 紫 | `jellyfish` |
+## Skins
 
-## 关闭与卸载
+<p align="center">
+  <img src="docs/media/skins.png" width="600" alt="Five skins">
+</p>
+<p align="center">
+  <sub>DeepSeek Whale (default) · Blue Whale · Threadcore · Nautilus · Jellyfish</sub>
+</p>
 
-- 只关宠物：窗口上按 `Esc`。
-- 连 DSH 一起关：停掉 `dsh web`，插件拉起的宠物一起没。
-- 卸掉插件：
+Right-click to cycle, or `--skin <id>`. Every skin has all six states at three
+frames each.
 
-```bash
-dsh plugin --profile web remove dsh-desk-pet
-```
-
-然后重新 `dsh web`。
-
-## 开发
+## Options
 
 ```bash
-/usr/bin/python3 -m unittest discover -s tests -v   # 全套测试，无需窗口
-DSH_PET_ART_CHECK=1 /usr/bin/python3 -m unittest discover -s tests   # 连素材一起验（多约 10 秒）
-./bin/dsh-desk-pet --probe                          # 不开窗，打印自检
-./bin/dsh-desk-pet --inventory                      # 每套皮肤每个状态有几帧
-./bin/dsh-desk-pet --small --reset                  # 半尺寸，并忘掉已保存的位置
+./bin/dsh-desk-pet --scale 0.5      # smaller (default 0.7)
+./bin/dsh-desk-pet --skin jellyfish # start on a specific skin
+./bin/dsh-desk-pet --reset          # forget saved position, size and skin
+./bin/dsh-desk-pet --stop           # stop the running pet
+./bin/dsh-desk-pet --foreground     # stay attached, log to this terminal
+./bin/dsh-desk-pet --probe          # diagnostics, no window
+./bin/dsh-desk-pet --inventory      # frames per skin per state
 ```
 
-### 素材流水线
+## How it works
 
-三个脚本，按顺序跑：
+The pet watches `~/.dsh` — running processes, session activity, and an optional
+hint file — and maps what it finds onto the six states. To drive it by hand:
 
 ```bash
-./scripts/generate_frames.py       # 用生图接口补齐缺的姿势（需要 ARTGEN__IMAGE_* 环境变量）
-./scripts/build_frames.py          # 抠底、对齐、缩放，产出两套帧
-./scripts/check_frames.py          # 逐像素体检
-./scripts/contact_sheet.py         # 拼一张总览图，不开窗也能看效果
+echo '{"kind":"working"}' > ~/.dsh/pet-activity.json
+rm ~/.dsh/pet-activity.json          # back to automatic
 ```
 
-新素材的**背景一律用品红 `#FF00FF`**，装饰（ZZZ、星星）不能用品红或背景色。底色必须是画面里绝不出现的颜色：早期素材生在粉彩底上（水母是薄荷绿），和角色自身颜色太近，抠图阈值怎么调都会误伤——那批水母的眼睛就是这么被抠没的。品红离这四套角色都很远，键容差放到 0.24 也完全不伤画。
+The desktop pet is the only thing that watches DSH. It publishes what it sees
+to `~/.dsh-desk-pet/state.json`, and the in-page mirror reads that — one
+implementation of "what is the agent doing", rather than two that can disagree.
 
-**generate_frames** 从不凭空重画角色：每次请求都是拿一张已有的图做 image-to-image。文生图跨次调用锁不住身份，问两次会得到两只不同的鲸、两种配色、两种尺寸，切状态时角色就当场变形。状态的第一帧参考本套皮肤的 idle 静止姿势，第二帧参考**它自己的第一帧**——两帧循环要的是同一个姿势差一瞬间，不是两个不同姿势。
+### Why AppKit and not Tk
 
-**build_frames** 一份原图产出两套：`assets/skins/` 下的透明 GIF 给桌面窗（macOS 的 Tk 8.5 只认 GIF，不认 PNG），`assets/web/` 下的 RGBA PNG 给网页镜像。用 `colorkey` 而不是 `chromakey`——后者只比较色度、不看亮度，碰上水母那种低饱和底色会把角色的黑眼睛一起吃掉。抠完还会做一次洞填充：背景按定义就是「与画面边缘连通的透明区域」，四面被角色包住的透明区一律补回不透明。裁切框在**相对坐标**里按每套皮肤统一算（源图有 360/1024/1254 三种分辨率），并按身体底边对齐基线，所以换状态、换皮肤都不会跳。
+macOS ships Tcl/Tk 8.5.9, released in 2010, and on macOS 26 its drawing path no
+longer reaches the screen: the window maps, the canvas reports itself mapped,
+viewable, correctly sized and holding an image at the right coordinates — and
+what appears is an empty grey rectangle.
 
-**check_frames** 是唯一会看像素的测试。其余测试只能比较文件名——水母曾经带着一脸窟窿通过全部测试。
+So the window is built directly on AppKit through `ctypes`. That is more
+machinery, and it buys three things Tk could not offer at all: real alpha
+instead of a 1-bit GIF matte, a window level that clears fullscreen Spaces, and
+a session panel that travels with the pet as a child window.
 
-同一状态放两帧以上就会自动循环；`idle` 的第二帧当作闭眼帧，脚本会给它排一个长睁短闭的双眨节奏。
+## Development
 
-### 自定义皮肤
+```bash
+/usr/bin/python3 -m unittest discover -s tests -v          # 144 tests, no display needed
+DSH_PET_ART_CHECK=1 /usr/bin/python3 -m unittest discover -s tests   # + the pixel gate
+node tests/plugin_smoke.mjs                                 # the plugin's HTTP routes
+```
 
-皮肤就是一个装帧的目录。只要 `assets/skins/<id>/<状态>/*.gif` 存在，它就会自动出现在右键菜单里，不用改代码。
+### The art pipeline
+
+```bash
+./scripts/generate_frames.py    # fill in missing poses
+./scripts/build_frames.py       # key, align, scale; writes both frame sets
+./scripts/check_frames.py       # per-pixel inspection
+./scripts/contact_sheet.py      # one reviewable image, no window required
+```
+
+New art goes on a **magenta `#FF00FF` background**, and props must not use
+magenta. The plate has to be a colour the artwork never contains: the first
+batch was generated on pastel plates — mint green behind the jellyfish — close
+enough to the characters that no key threshold could separate them, which is how
+that jellyfish once shipped with its eyes cut out.
+
+**generate_frames** never redraws a character from scratch; every request is an
+image-to-image edit of an existing still, because text-to-image cannot hold
+identity across calls. Frame `00` of a state edits from the skin's idle pose;
+frame `01` edits from **frame 00 of its own state**, because a loop needs the
+same pose an instant later, not two different poses.
+
+**check_frames** is the only test that looks at pixels. Everything else can
+only compare filenames — which is how a skin once passed the entire suite with
+holes punched through its face.
+
+### Custom skins
+
+A skin is a folder of frames. Anything at `assets/skins/<id>/<state>/*.png`
+appears in the cycle on its own, with no code change.
+
+## Known limits
+
+- The window is a rectangle, so clicks landing on the transparent margin around
+  the pet do not reach what is behind it. Per-pixel click-through is written but
+  not yet wired up.
+- No menu yet — right-click cycles skins rather than opening one.
+
+## License
+
+MIT.

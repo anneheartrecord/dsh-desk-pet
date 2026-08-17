@@ -187,6 +187,10 @@ class DeskPetApp:
             return
         if self.panel is None:
             self.panel = nswindow.PanelWindow()
+            # Child of the pet, so AppKit moves the two together. Following the
+            # pet from our own loop cannot work during a drag: AppKit's drag
+            # loop owns the thread until the mouse comes up.
+            self.panel.attach_to(self.window)
         rows, footer = self.panel_rows()
         if not rows:
             rows = [(False, "no DSH sessions yet", "", "")]
@@ -201,6 +205,13 @@ class DeskPetApp:
         self._reposition_panel()
 
     def _reposition_panel(self) -> None:
+        """Re-anchor the panel after something other than a drag moved the pet.
+
+        Dragging needs no help — the panel is a child window, so AppKit carries
+        it along. This is for the cases where the pet's size changes underneath
+        it, such as a skin or scale change.
+        """
+
         if self.window is None or self.panel is None or not self.panel.visible:
             return
         x, y = self.window.position()

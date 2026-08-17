@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": false,
   "type": "module",
-  "description": "Always-on-top DeepSeek Harness desktop pet. Default whale, four skins, four silent states. Not an in-page widget.",
+  "description": "Always-on-top DeepSeek Harness desk pet. Shows what your agent is doing: working, waiting, finished, failed. Five skins, no dependencies.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -32,8 +32,9 @@
     "plugin",
     "src",
     "cordis.patch.yml",
+    "docs/media",
     "README.md",
-    "README_EN.md",
+    "README.zh-CN.md",
     "LICENSE"
   ],
   "dsh": {

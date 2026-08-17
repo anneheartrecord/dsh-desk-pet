@@ -108,6 +108,7 @@ class PetWindow:
     * ``on_click()``   — pressed and released without moving
     * ``on_moved(x,y)``— finished a drag, in screen coordinates
     * ``on_menu()``    — right-clicked (or control-clicked)
+    * ``on_drag_start()`` — a drag just began; `dragging` stays True until it ends
     * ``hit_test(x,y)``— is this point on the character? Accepted and stored,
       but not wired to AppKit yet: see `_make_view_class` on why overriding
       `hitTest:` was backed out.
@@ -124,6 +125,7 @@ class PetWindow:
         on_moved: Callable[[int, int], None] | None = None,
         on_menu: Callable[[], None] | None = None,
         hit_test: Callable[[float, float], bool] | None = None,
+        on_drag_start: Callable[[], None] | None = None,
     ) -> None:
         if sys.platform != "darwin":
             raise RuntimeError("the desk pet window is macOS-only")
@@ -134,6 +136,12 @@ class PetWindow:
         self.on_moved = on_moved
         self.on_menu = on_menu
         self.hit_test = hit_test
+        self.on_drag_start = on_drag_start
+        # True while AppKit's drag loop owns the mouse. `performWindowDragWithEvent:`
+        # does not return until the button comes up, so anything that needs to
+        # keep up with the window during a drag has to watch this rather than
+        # wait for the callback.
+        self.dragging = False
         self._images: dict[Path, int] = {}
         self._closed = False
         self._pressed = False
@@ -244,7 +252,13 @@ class PetWindow:
         def _down(_self, _cmd, event):
             try:
                 before = self.position()
-                drag_with_event(self._window, rt.sel("performWindowDragWithEvent:"), event)
+                self.dragging = True
+                if self.on_drag_start:
+                    self.on_drag_start()
+                try:
+                    drag_with_event(self._window, rt.sel("performWindowDragWithEvent:"), event)
+                finally:
+                    self.dragging = False
                 after = self.position()
                 if before != after:
                     if self.on_moved:
@@ -254,7 +268,7 @@ class PetWindow:
             except Exception:
                 # A raise inside an Objective-C callback unwinds into AppKit,
                 # which has no idea what to do with it. Swallow and stay alive.
-                pass
+                self.dragging = False
 
         def _right(_self, _cmd, event):
             try:
@@ -427,6 +441,7 @@ class PanelWindow:
         self._closed = False
         self._visible = False
         self._layers: list = []
+        self._parent = None
 
         self._ptr = rt.sig(ctypes.c_void_p)
         self._ptr_ptr = rt.sig(ctypes.c_void_p, ctypes.c_void_p)
@@ -564,6 +579,26 @@ class PanelWindow:
 
         self._ptr_ptr(self._window, rt.sel("orderFront:"), None)
         self._visible = True
+
+    def attach_to(self, parent: "PetWindow") -> None:
+        """Make the panel a child window of the pet.
+
+        AppKit then moves it with the parent itself, which is the only way to
+        keep them together during a drag: `performWindowDragWithEvent:` runs
+        its own event loop and does not return until the mouse comes up, so no
+        amount of following from our own loop can help — our loop is not
+        running. A child window needs no help.
+        """
+
+        rt = self.rt
+        try:
+            add_child = rt.sig(None, ctypes.c_void_p, ctypes.c_long)
+            # NSWindowAbove == 1: the panel sits over the pet's own window, but
+            # its level is one below, so the pet still draws on top.
+            add_child(parent._window, rt.sel("addChildWindow:ordered:"), self._window, 1)
+            self._parent = parent
+        except Exception:
+            self._parent = None
 
     def move_to(self, x: int, y: int) -> None:
         """Move the panel without rebuilding its rows.

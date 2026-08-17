@@ -177,6 +177,25 @@ class RendererTests(unittest.TestCase):
         finally:
             panel.close()
 
+    def test_panel_attaches_as_a_child_and_travels_with_the_pet(self) -> None:
+        """Dragging cannot be followed from our own loop: AppKit's drag loop
+        owns the thread until the mouse comes up. A child window needs no
+        following."""
+
+        pet = nswindow.PetWindow(160, 160, x=300, y=300)
+        panel = nswindow.PanelWindow()
+        try:
+            panel.show([(True, "row", "Working", "now")], x=250, y=480)
+            panel.attach_to(pet)
+            before = panel._rect(panel._window, panel.rt.sel("frame")).x
+            pet.move_to(600, 350)
+            pet.pump(0.05)
+            after = panel._rect(panel._window, panel.rt.sel("frame")).x
+            self.assertEqual(after - before, 300, "panel did not travel with the pet")
+        finally:
+            panel.close()
+            pet.close()
+
     def test_panel_redraw_does_not_leak_layers(self) -> None:
         panel = nswindow.PanelWindow()
         try:
