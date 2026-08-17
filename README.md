@@ -168,6 +168,8 @@ appears in the cycle on its own, with no code change.
   not yet wired up.
 - No menu yet — right-click cycles skins rather than opening one.
 
+What is planned next, and what is deliberately not: [docs/ROADMAP.md](docs/ROADMAP.md).
+
 ## License
 
 MIT.
