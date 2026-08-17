@@ -124,8 +124,8 @@ macOS 自带的是 2010 年发布的 Tcl/Tk 8.5.9，在 macOS 26 上它的绘制
 ## 开发
 
 ```bash
-/usr/bin/python3 -m unittest discover -s tests -v          # 145 个测试，不需要显示器
-DSH_PET_ART_CHECK=1 /usr/bin/python3 -m unittest discover -s tests   # 加上逐像素素材闸门
+/usr/bin/python3 -m unittest discover -t . -s tests -v     # 148 个测试，不需要显示器
+DSH_PET_ART_CHECK=1 /usr/bin/python3 -m unittest discover -t . -s tests   # 加上逐像素素材闸门
 node tests/plugin_smoke.mjs                                 # 插件的 HTTP 路由
 ```
 

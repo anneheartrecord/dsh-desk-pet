@@ -140,8 +140,8 @@ a session panel that travels with the pet as a child window.
 ## Development
 
 ```bash
-/usr/bin/python3 -m unittest discover -s tests -v          # 145 tests, no display needed
-DSH_PET_ART_CHECK=1 /usr/bin/python3 -m unittest discover -s tests   # + the pixel gate
+/usr/bin/python3 -m unittest discover -t . -s tests -v     # 148 tests, no display needed
+DSH_PET_ART_CHECK=1 /usr/bin/python3 -m unittest discover -t . -s tests   # + the pixel gate
 node tests/plugin_smoke.mjs                                 # the plugin's HTTP routes
 ```
 

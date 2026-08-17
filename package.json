@@ -43,7 +43,7 @@
   },
   "scripts": {
     "start": "bin/dsh-desk-pet",
-    "test": "/usr/bin/python3 -m unittest discover -s tests -v"
+    "test": "/usr/bin/python3 -m unittest discover -t . -s tests -v"
   },
   "os": [
     "darwin"
