@@ -36,13 +36,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = ROOT / "assets" / "source"
 
+# Two backends, because they are not equivalent in output quality.
+#
+# `gemini` talks to the Gemini-native /v1beta endpoint, which is where the good
+# linework comes from — the gpt-image-2 slot on this relay is partly served by
+# Adobe (its throttle errors say so), and it produces noticeably mushier art.
+# `openai` is the OpenAI-shaped /v1/images route, kept because it is what the
+# existing frames were generated with and what a differently-provisioned relay
+# may be the only thing offering.
+BACKEND = os.environ.get("DSH_PET_IMAGE_BACKEND", "gemini")
 MODEL = "gpt-image-2"
+GEMINI_MODEL = os.environ.get("DSH_PET_GEMINI_MODEL", "gemini-3.1-flash-image")
+GEMINI_BASE = os.environ.get("DSH_PET_GEMINI_BASE", "https://api.taluna.ai")
 SIZE = "1024x1024"
 TIMEOUT_S = 300
 
 # What each skin *is*, so the prompt can name the body parts it should move.
 SKIN_SUBJECT = {
-    "deepseek": "black whale (the DeepSeek logo whale, deep navy-black body)",
+    "deepseek": "blue whale (the DeepSeek logo whale: #4D6BFE body, curled round posture, raised tail fluke, pale belly)",
     "bluewhale": "baby whale",
     "threadcore": "ball of yarn character with trailing threads",
     "nautilus": "nautilus shell creature",
@@ -83,22 +94,26 @@ POSES: dict[str, dict[str, str]] = {
     },
     "working": {
         "00": (
-            "Concentrating on work: brow furrowed in focus, eyes narrowed and looking down at what "
-            "it is doing, mouth set in a small determined line, and holding a pencil in one flipper "
-            "clearly visible against the body."
+            "Concentrating on work: brow furrowed in focus, eyes narrowed in determination, mouth "
+            "set in a small determined line, and holding a single pencil upright in one flipper. "
+            "The pencil floats with the character — there is no desk, no table, no floor and no "
+            "surface of any kind. The background stays perfectly flat pure magenta everywhere."
         ),
         # Not a blink. An earlier pass made 01 a closed-eye frame, which is what
         # idle/01 already is — so half of `working` was pixel-identical to idle,
         # and the state's only signifier vanished every other frame.
         "01": (
-            "The same concentrating pose one instant later, mid-action: the hand and its tool have "
-            "moved to a clearly different position, as though partway through a stroke. Eyes stay "
-            "open and focused on the work, brow still furrowed. Body, scale and framing unchanged."
+            "The same concentrating pose one instant later, mid-action: the flipper holding the "
+            "pencil has moved to a clearly different position, as though partway through a stroke. "
+            "Eyes stay open and focused, brow still furrowed. No desk, no table, no floor, no "
+            "surface — the background stays perfectly flat pure magenta everywhere. Body, scale "
+            "and framing unchanged."
         ),
         "02": (
-            "The same concentrating pose again, still holding the tool in view, but with the eyes "
-            "briefly closed in a quick blink. The tool must remain visible and in the same place "
-            "as the reference."
+            "The same concentrating pose again, still holding the pencil in view, but with the eyes "
+            "briefly closed in a quick blink. The pencil stays visible in the same place as the "
+            "reference. No desk, no table, no floor — the background stays perfectly flat pure "
+            "magenta everywhere."
         ),
     },
     # `waiting` means "blocked on you", and it has to be legible as *that*, not
@@ -179,6 +194,77 @@ POSES: dict[str, dict[str, str]] = {
         ),
     },
 }
+
+
+def _gemini_endpoint() -> tuple[str, str]:
+    """(url, key) for the Gemini-native image endpoint.
+
+    The key is not the same one as the OpenAI-shaped route: relay keys are
+    scoped per gateway host, and the image key 401s here. Tried in order of how
+    specifically they name this use.
+    """
+
+    key = (
+        os.environ.get("DSH_PET_GEMINI_API_KEY")
+        or os.environ.get("KOUBOU_DEV_TALUNA_API_KEY")
+        or os.environ.get("ARTGEN__IMAGE_API_KEY", "")
+    )
+    if not key:
+        raise SystemExit(
+            "No Gemini image key. Set DSH_PET_GEMINI_API_KEY, or run with\n"
+            "DSH_PET_IMAGE_BACKEND=openai to use the OpenAI-shaped endpoint."
+        )
+    base = GEMINI_BASE.rstrip("/")
+    return f"{base}/v1beta/models/{GEMINI_MODEL}:generateContent", key
+
+
+def _gemini_request(prompt: str, reference: Path | None) -> tuple[list[str], str]:
+    """curl args and a temp-file path for one Gemini image request.
+
+    Reference images ride along as inline base64 parts, which is how the native
+    API does image-to-image — there is no multipart form here.
+    """
+
+    parts: list[dict] = []
+    if reference is not None and reference.is_file():
+        parts.append({
+            "inline_data": {
+                "mime_type": "image/png",
+                "data": base64.b64encode(reference.read_bytes()).decode("ascii"),
+            }
+        })
+    parts.append({"text": prompt})
+    body = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {"responseModalities": ["IMAGE"]},
+    }
+
+    url, key = _gemini_endpoint()
+    # Key through a 0600 file, never argv: anything on a curl command line is
+    # readable by every process on the machine via `ps`.
+    conf_fd, conf = tempfile.mkstemp(prefix=".gemini-", suffix=".conf")
+    with os.fdopen(conf_fd, "w", encoding="utf-8") as handle:
+        handle.write(f'header = "x-goog-api-key: {key}"\n')
+    body_fd, body_file = tempfile.mkstemp(prefix=".gemini-", suffix=".json")
+    with os.fdopen(body_fd, "w", encoding="utf-8") as handle:
+        json.dump(body, handle)
+
+    args = [
+        "curl", "-s", "--noproxy", "*", "--max-time", str(TIMEOUT_S),
+        "-K", conf, "-H", "Content-Type: application/json",
+        "-X", "POST", url, "-d", f"@{body_file}",
+    ]
+    return args, f"{conf}|{body_file}"
+
+
+def _gemini_image(payload: dict) -> bytes | None:
+    for candidate in payload.get("candidates", []):
+        for part in candidate.get("content", {}).get("parts", []):
+            inline = part.get("inlineData") or part.get("inline_data") or {}
+            blob = inline.get("data")
+            if blob:
+                return base64.b64decode(blob)
+    return None
 
 
 def _endpoint() -> tuple[str, str]:
@@ -262,63 +348,81 @@ def generate(
         subject = SKIN_SUBJECT.get(skin, "character")
         prompt = f"{IDENTITY} The character is a cute chibi {subject}. {delta}"
 
-    url, key = _endpoint()
-    # The Authorization header goes through a 0600 config file, never argv:
-    # anything on `curl -H "Bearer ..."` is readable by every process on the
-    # machine via `ps`, and this key is the user's real one.
-    header_fd, header_file = tempfile.mkstemp(prefix=".artgen-", suffix=".conf")
-    with os.fdopen(header_fd, "w", encoding="utf-8") as handle:
-        handle.write(f'header = "Authorization: Bearer {key}"\n')
-
-    # curl rather than urllib: multipart with a file part is a lot of boilerplate
-    # in the stdlib, and curl is already required by the rest of this repo's tooling.
-    try:
-        proc = subprocess.run(
-            [
-                "curl", "-s", "--noproxy", "*", "--max-time", str(TIMEOUT_S),
-                "-K", header_file,
-                "-X", "POST", url,
-                "-F", f"model={MODEL}",
-                "-F", f"image=@{reference}",
-                "-F", f"size={SIZE}",
-                "-F", "n=1",
-                "-F", f"prompt={prompt}",
-            ],
-            capture_output=True,
-        )
-    finally:
-        Path(header_file).unlink(missing_ok=True)
-    if proc.returncode != 0:
-        return f"{skin}/{state}/{index}", f"FAIL curl rc={proc.returncode}"
-
-    try:
-        payload = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        return f"{skin}/{state}/{index}", f"FAIL bad json: {proc.stdout[:160]!r}"
-    if "error" in payload:
-        return f"{skin}/{state}/{index}", f"FAIL api: {json.dumps(payload['error'])[:200]}"
-
-    try:
-        item = payload["data"][0]
-    except (KeyError, IndexError):
-        return f"{skin}/{state}/{index}", f"FAIL no image in {json.dumps(payload)[:160]}"
-
-    # The relay answers `/images/generations` with base64 but `/images/edits`
-    # with a URL and an *empty* b64_json field, so presence is not enough —
-    # this has to check for actual content or it silently writes 0-byte files.
     dest.parent.mkdir(parents=True, exist_ok=True)
-    blob = item.get("b64_json") or ""
-    if blob:
-        dest.write_bytes(base64.b64decode(blob))
-    elif item.get("url"):
-        fetch = subprocess.run(
-            ["curl", "-s", "--noproxy", "*", "--max-time", str(TIMEOUT_S), "-o", str(dest), item["url"]],
-            capture_output=True,
-        )
-        if fetch.returncode != 0:
-            return f"{skin}/{state}/{index}", f"FAIL download rc={fetch.returncode}"
+
+    if BACKEND == "gemini":
+        args, temps = _gemini_request(prompt, reference if reference.is_file() else None)
+        try:
+            proc = subprocess.run(args, capture_output=True)
+        finally:
+            for temp in temps.split("|"):
+                Path(temp).unlink(missing_ok=True)
+        if proc.returncode != 0:
+            return f"{skin}/{state}/{index}", f"FAIL curl rc={proc.returncode}"
+        try:
+            payload = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            return f"{skin}/{state}/{index}", f"FAIL bad json: {proc.stdout[:160]!r}"
+        if "error" in payload:
+            return f"{skin}/{state}/{index}", f"FAIL api: {json.dumps(payload['error'])[:200]}"
+        raw = _gemini_image(payload)
+        if raw is None:
+            return f"{skin}/{state}/{index}", f"FAIL no image in {json.dumps(payload)[:160]}"
+        dest.write_bytes(raw)
     else:
-        return f"{skin}/{state}/{index}", f"FAIL empty payload {json.dumps(item)[:160]}"
+        url, key = _endpoint()
+        # The Authorization header goes through a 0600 config file, never argv:
+        # anything on `curl -H "Bearer ..."` is readable by every process on the
+        # machine via `ps`, and this key is the user's real one.
+        header_fd, header_file = tempfile.mkstemp(prefix=".artgen-", suffix=".conf")
+        with os.fdopen(header_fd, "w", encoding="utf-8") as handle:
+            handle.write(f'header = "Authorization: Bearer {key}"\n')
+        try:
+            proc = subprocess.run(
+                [
+                    "curl", "-s", "--noproxy", "*", "--max-time", str(TIMEOUT_S),
+                    "-K", header_file,
+                    "-X", "POST", url,
+                    "-F", f"model={MODEL}",
+                    "-F", f"image=@{reference}",
+                    "-F", f"size={SIZE}",
+                    "-F", "n=1",
+                    "-F", f"prompt={prompt}",
+                ],
+                capture_output=True,
+            )
+        finally:
+            Path(header_file).unlink(missing_ok=True)
+        if proc.returncode != 0:
+            return f"{skin}/{state}/{index}", f"FAIL curl rc={proc.returncode}"
+
+        try:
+            payload = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            return f"{skin}/{state}/{index}", f"FAIL bad json: {proc.stdout[:160]!r}"
+        if "error" in payload:
+            return f"{skin}/{state}/{index}", f"FAIL api: {json.dumps(payload['error'])[:200]}"
+
+        try:
+            item = payload["data"][0]
+        except (KeyError, IndexError):
+            return f"{skin}/{state}/{index}", f"FAIL no image in {json.dumps(payload)[:160]}"
+
+        # The relay answers `/images/generations` with base64 but `/images/edits`
+        # with a URL and an *empty* b64_json field, so presence is not enough —
+        # this has to check for actual content or it silently writes 0-byte files.
+        blob = item.get("b64_json") or ""
+        if blob:
+            dest.write_bytes(base64.b64decode(blob))
+        elif item.get("url"):
+            fetch = subprocess.run(
+                ["curl", "-s", "--noproxy", "*", "--max-time", str(TIMEOUT_S), "-o", str(dest), item["url"]],
+                capture_output=True,
+            )
+            if fetch.returncode != 0:
+                return f"{skin}/{state}/{index}", f"FAIL download rc={fetch.returncode}"
+        else:
+            return f"{skin}/{state}/{index}", f"FAIL empty payload {json.dumps(item)[:160]}"
 
     size = dest.stat().st_size
     if size < 10_000:

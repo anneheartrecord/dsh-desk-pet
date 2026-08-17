@@ -175,30 +175,30 @@
     },
     "deepseek": {
       "crop_relative": [
-        0.0332,
-        0.1201,
-        0.9707,
-        0.8672
+        0.0029,
+        0.041,
+        1.0,
+        0.9004
       ],
       "keys": {
-        "error/00": "0xF204E8",
-        "error/01": "0xF404E9",
-        "error/02": "0xF304E4",
-        "happy/00": "0xF006E3",
-        "happy/01": "0xE507D7",
-        "happy/02": "0xE603DA",
-        "idle/00": "0xFA02F2",
-        "idle/01": "0xF106E7",
-        "idle/02": "0xF304E7",
-        "sleeping/00": "0xF403E3",
-        "sleeping/01": "0xEB03D8",
-        "sleeping/02": "0xEB04DA",
-        "waiting/00": "0xF404E7",
-        "waiting/01": "0xE905DF",
-        "waiting/02": "0xEC05DA",
-        "working/00": "0xF304E8",
-        "working/01": "0xF305E7",
-        "working/02": "0xEF06E8"
+        "error/00": "0xFB01F8",
+        "error/01": "0xFA00F8",
+        "error/02": "0xFA01F9",
+        "happy/00": "0xFB03F9",
+        "happy/01": "0xFA01F8",
+        "happy/02": "0xFB01F9",
+        "idle/00": "0xFD07F9",
+        "idle/01": "0xFC01FA",
+        "idle/02": "0xFB01FA",
+        "sleeping/00": "0xFA02F6",
+        "sleeping/01": "0xF900F5",
+        "sleeping/02": "0xF901F8",
+        "waiting/00": "0xFB02F9",
+        "waiting/01": "0xF900FA",
+        "waiting/02": "0xFA01F8",
+        "working/00": "0xFB02F9",
+        "working/01": "0xF900F8",
+        "working/02": "0xFA00FA"
       },
       "states": {
         "error": [
@@ -233,10 +233,10 @@
         ]
       },
       "subject_box": [
-        6,
-        43,
-        193,
-        187
+        0,
+        20,
+        198,
+        188
       ],
       "timelines": {
         "error": [
