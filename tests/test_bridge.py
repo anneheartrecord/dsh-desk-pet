@@ -25,13 +25,13 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(payload["epoch_ms"], 42)
 
     def test_publish_creates_the_directory(self) -> None:
-        path = bridge.publish("whale", "idle", home=self.home / "fresh")
+        path = bridge.publish("deepseek", "idle", home=self.home / "fresh")
         self.assertTrue(path.is_file())
 
-    def test_missing_file_reads_as_idle_whale(self) -> None:
+    def test_missing_file_reads_as_the_default_skin_idle(self) -> None:
         payload = bridge.read(self.home / "nothing-here")
         self.assertEqual(payload["state"], "idle")
-        self.assertEqual(payload["skin"], "whale")
+        self.assertEqual(payload["skin"], "deepseek")
 
     def test_corrupt_file_reads_as_idle(self) -> None:
         """The page polls while the pet writes; a torn read must not 500."""
@@ -49,7 +49,7 @@ class BridgeTests(unittest.TestCase):
 
     def test_publish_is_atomic_and_leaves_no_temp_files(self) -> None:
         for i in range(5):
-            bridge.publish("whale", "working", home=self.home, epoch_ms=i)
+            bridge.publish("deepseek", "working", home=self.home, epoch_ms=i)
         leftovers = [p.name for p in bridge.state_path(self.home).parent.iterdir() if p.name.startswith(".state-")]
         self.assertEqual(leftovers, [], f"temp files left behind: {leftovers}")
 
@@ -59,7 +59,7 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(json.loads(raw)["state"], "error")
 
     def test_clear_removes_the_file(self) -> None:
-        bridge.publish("whale", "idle", home=self.home)
+        bridge.publish("deepseek", "idle", home=self.home)
         bridge.clear(self.home)
         self.assertFalse(bridge.state_path(self.home).exists())
 
@@ -78,7 +78,7 @@ class LivePidTests(unittest.TestCase):
     def _write(self, **fields) -> None:
         path = bridge.state_path(self.home)
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"skin": "whale", "state": "idle"}
+        payload = {"skin": "deepseek", "state": "idle"}
         payload.update(fields)
         path.write_text(json.dumps(payload), encoding="utf-8")
 

@@ -13,9 +13,9 @@ from dsh_desk_pet.runtime import HAPPY_MS, SLEEP_AFTER_MS, PetRuntime
 
 
 class DefaultsTests(unittest.TestCase):
-    def test_starts_on_whale_idle(self) -> None:
+    def test_starts_on_the_deepseek_whale_idle(self) -> None:
         runtime = PetRuntime()
-        self.assertEqual(runtime.skin_id, "whale")
+        self.assertEqual(runtime.skin_id, "deepseek")
         self.assertEqual(runtime.state, "idle")
 
     def test_unknown_skin_is_rejected(self) -> None:

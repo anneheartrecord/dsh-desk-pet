@@ -404,3 +404,193 @@ def available() -> bool:
         return bool(_Runtime().cls("NSWindow"))
     except Exception:
         return False
+
+
+class PanelWindow:
+    """A small dark rounded panel of text rows, shown under the pet.
+
+    Built from AppKit text layers rather than drawn by hand: `CATextLayer`
+    renders and lays out a string, which is the whole job, and going through
+    `NSAttributedString` would need a lot more type encodings to get wrong.
+
+    Rows are plain data — `(dot, title, badge, age)` — so what the panel shows
+    is decided by `sessions` and tested without a display.
+    """
+
+    ROW_HEIGHT = 30
+    PADDING = 12
+    CORNER = 14
+
+    def __init__(self, width: int = 300) -> None:
+        self.rt = rt = _Runtime()
+        self.width = width
+        self._closed = False
+        self._visible = False
+        self._layers: list = []
+
+        self._ptr = rt.sig(ctypes.c_void_p)
+        self._ptr_ptr = rt.sig(ctypes.c_void_p, ctypes.c_void_p)
+        self._void_ptr = rt.sig(None, ctypes.c_void_p)
+        self._void_bool = rt.sig(None, ctypes.c_bool)
+        self._void_long = rt.sig(None, ctypes.c_long)
+        self._void_ulong = rt.sig(None, ctypes.c_ulong)
+        self._void_double = rt.sig(None, ctypes.c_double)
+        self._void_rect = rt.sig(None, NSRect)
+        self._void_point = rt.sig(None, NSPoint)
+        self._rect = rt.sig(NSRect)
+        self._init_rect = ctypes.CFUNCTYPE(
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, NSRect
+        )(rt._addr)
+        self._init_window = ctypes.CFUNCTYPE(
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+            NSRect, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_bool,
+        )(rt._addr)
+        self._color = ctypes.CFUNCTYPE(
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+            ctypes.c_double, ctypes.c_double, ctypes.c_double, ctypes.c_double,
+        )(rt._addr)
+        self._font = ctypes.CFUNCTYPE(
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_double
+        )(rt._addr)
+
+        window = self._ptr(rt.cls("NSWindow"), rt.sel("alloc"))
+        window = self._init_window(
+            window, rt.sel("initWithContentRect:styleMask:backing:defer:"),
+            NSRect(0, 0, width, 100), NSWindowStyleMaskBorderless, NSBackingStoreBuffered, False,
+        )
+        self._void_bool(window, rt.sel("setOpaque:"), False)
+        self._ptr_ptr(window, rt.sel("setBackgroundColor:"),
+                      self._ptr(rt.cls("NSColor"), rt.sel("clearColor")))
+        self._void_bool(window, rt.sel("setHasShadow:"), True)
+        # Just under the pet, so the pet is never hidden by its own panel.
+        self._void_long(window, rt.sel("setLevel:"), ASSISTIVE_TECH_HIGH_LEVEL - 1)
+        self._void_ulong(window, rt.sel("setCollectionBehavior:"),
+                         CAN_JOIN_ALL_SPACES | STATIONARY | FULLSCREEN_AUXILIARY)
+        self._void_bool(window, rt.sel("setIgnoresMouseEvents:"), True)
+        self._window = window
+
+        view = self._init_rect(
+            self._ptr(rt.cls("NSView"), rt.sel("alloc")), rt.sel("initWithFrame:"),
+            NSRect(0, 0, width, 100),
+        )
+        self._void_bool(view, rt.sel("setWantsLayer:"), True)
+        self._ptr_ptr(window, rt.sel("setContentView:"), view)
+        self._view = view
+        self._root_layer = self._ptr(view, rt.sel("layer"))
+        self._void_double(self._root_layer, rt.sel("setCornerRadius:"), float(self.CORNER))
+        self._ptr_ptr(self._root_layer, rt.sel("setBackgroundColor:"), self._cg_color(0.09, 0.09, 0.11, 0.94))
+
+    def _nsstring(self, text: str):
+        return self._ptr_ptr(
+            self.rt.cls("NSString"), self.rt.sel("stringWithUTF8String:"),
+            ctypes.cast(ctypes.c_char_p(text.encode("utf-8")), ctypes.c_void_p),
+        )
+
+    def _cg_color(self, r: float, g: float, b: float, a: float):
+        colour = self._color(
+            self.rt.cls("NSColor"), self.rt.sel("colorWithSRGBRed:green:blue:alpha:"), r, g, b, a
+        )
+        return self._ptr(colour, self.rt.sel("CGColor"))
+
+    def _text_layer(self, text: str, x: float, y: float, w: float, size: float, colour, *, bold=False):
+        rt = self.rt
+        layer = self._ptr(self._ptr(rt.cls("CATextLayer"), rt.sel("alloc")), rt.sel("init"))
+        self._ptr_ptr(layer, rt.sel("setString:"), self._nsstring(text))
+        font_name = "HelveticaNeue-Bold" if bold else "HelveticaNeue"
+        font = self._font(rt.cls("NSFont"), rt.sel("fontWithName:size:"), self._nsstring(font_name), size)
+        if font:
+            self._ptr_ptr(layer, rt.sel("setFont:"), font)
+        self._void_double(layer, rt.sel("setFontSize:"), size)
+        self._ptr_ptr(layer, rt.sel("setForegroundColor:"), colour)
+        self._void_double(layer, rt.sel("setContentsScale:"), 2.0)
+        self._void_rect(layer, rt.sel("setFrame:"), NSRect(x, y, w, size + 6))
+        return layer
+
+    def show(self, rows: list[tuple[bool, str, str, str]], *, x: int, y: int, footer: str = "") -> None:
+        """Draw these rows and place the panel with its top-left at (x, y)."""
+
+        if self._closed:
+            return
+        rt = self.rt
+        for layer in self._layers:
+            self._void_ptr(layer, rt.sel("removeFromSuperlayer"), None)
+        self._layers = []
+
+        count = len(rows) + (1 if footer else 0)
+        height = self.PADDING * 2 + max(1, count) * self.ROW_HEIGHT
+        screen_h = self._rect(self._ptr(rt.cls("NSScreen"), rt.sel("mainScreen")), rt.sel("frame")).h
+        self._void_rect(self._window, rt.sel("setFrame:display:"),
+                        NSRect(x, screen_h - y - height, self.width, height))
+        self._void_rect(self._view, rt.sel("setFrame:"), NSRect(0, 0, self.width, height))
+
+        white = self._cg_color(0.94, 0.94, 0.96, 1.0)
+        grey = self._cg_color(0.62, 0.62, 0.68, 1.0)
+        green = self._cg_color(0.25, 0.80, 0.45, 1.0)
+        dim = self._cg_color(0.42, 0.42, 0.48, 1.0)
+
+        # Layers are positioned bottom-up in AppKit, so the first row is drawn
+        # highest.
+        top = height - self.PADDING
+        for index, (active, title, badge, age) in enumerate(rows):
+            row_y = top - (index + 1) * self.ROW_HEIGHT + 6
+            dot = self._ptr(self._ptr(rt.cls("CALayer"), rt.sel("alloc")), rt.sel("init"))
+            self._void_rect(dot, rt.sel("setFrame:"), NSRect(self.PADDING, row_y + 6, 8, 8))
+            self._void_double(dot, rt.sel("setCornerRadius:"), 4.0)
+            self._ptr_ptr(dot, rt.sel("setBackgroundColor:"), green if active else dim)
+            self._ptr_ptr(self._root_layer, rt.sel("addSublayer:"), dot)
+            self._layers.append(dot)
+
+            title_layer = self._text_layer(title, self.PADDING + 18, row_y, self.width - 150, 13, white)
+            self._ptr_ptr(self._root_layer, rt.sel("addSublayer:"), title_layer)
+            self._layers.append(title_layer)
+
+            if badge:
+                badge_layer = self._text_layer(
+                    badge, self.width - 128, row_y, 60, 11, green if active else grey, bold=True
+                )
+                self._ptr_ptr(self._root_layer, rt.sel("addSublayer:"), badge_layer)
+                self._layers.append(badge_layer)
+
+            age_layer = self._text_layer(age, self.width - 66, row_y, 56, 11, grey)
+            self._ptr_ptr(self._root_layer, rt.sel("addSublayer:"), age_layer)
+            self._layers.append(age_layer)
+
+        if footer:
+            footer_layer = self._text_layer(
+                footer, self.PADDING + 18, self.PADDING - 2, self.width - 40, 11, grey
+            )
+            self._ptr_ptr(self._root_layer, rt.sel("addSublayer:"), footer_layer)
+            self._layers.append(footer_layer)
+
+        self._ptr_ptr(self._window, rt.sel("orderFront:"), None)
+        self._visible = True
+
+    def move_to(self, x: int, y: int) -> None:
+        """Move the panel without rebuilding its rows.
+
+        Dragging the pet re-lays-out nothing: the content has not changed, only
+        where it sits, and rebuilding every layer mid-drag would show as a
+        flicker under the hand.
+        """
+
+        if self._closed or not self._visible:
+            return
+        rt = self.rt
+        frame = self._rect(self._window, rt.sel("frame"))
+        screen_h = self._rect(self._ptr(rt.cls("NSScreen"), rt.sel("mainScreen")), rt.sel("frame")).h
+        self._void_point(self._window, rt.sel("setFrameOrigin:"),
+                         NSPoint(x, screen_h - y - frame.h))
+
+    def hide(self) -> None:
+        if self._closed or not self._visible:
+            return
+        self._ptr_ptr(self._window, self.rt.sel("orderOut:"), None)
+        self._visible = False
+
+    @property
+    def visible(self) -> bool:
+        return self._visible
+
+    def close(self) -> None:
+        self.hide()
+        self._closed = True

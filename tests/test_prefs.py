@@ -25,14 +25,14 @@ class RoundTripTests(unittest.TestCase):
 
     def test_missing_file_gives_defaults(self) -> None:
         loaded = prefs_store.load(self.home / "nope")
-        self.assertEqual(loaded.skin_id, "whale")
+        self.assertEqual(loaded.skin_id, "deepseek")
         self.assertIsNone(loaded.x)
 
     def test_corrupt_file_gives_defaults(self) -> None:
         path = prefs_store.prefs_path(self.home)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("}{", encoding="utf-8")
-        self.assertEqual(prefs_store.load(self.home).skin_id, "whale")
+        self.assertEqual(prefs_store.load(self.home).skin_id, "deepseek")
 
     def test_unknown_keys_are_ignored(self) -> None:
         """A file written by a newer version must not crash an older pet."""
@@ -55,7 +55,7 @@ class RoundTripTests(unittest.TestCase):
 
 class ClampTests(unittest.TestCase):
     def test_unknown_skin_falls_back_to_default(self) -> None:
-        self.assertEqual(Prefs(skin_id="dragon").clamped().skin_id, "whale")
+        self.assertEqual(Prefs(skin_id="dragon").clamped().skin_id, "deepseek")
 
     def test_scale_is_clamped_both_ways(self) -> None:
         self.assertEqual(Prefs(scale=99).clamped().scale, MAX_SCALE)

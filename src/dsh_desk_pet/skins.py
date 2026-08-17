@@ -26,13 +26,16 @@ class Skin:
 
 
 BUILTIN_SKINS: tuple[Skin, ...] = (
-    Skin(id="whale", name="Whale", name_zh="鲸"),
+    # The default is the DeepSeek whale, because this is a DSH plugin and the
+    # pet on your desk should be the one you already recognise.
+    Skin(id="deepseek", name="DeepSeek Whale", name_zh="深索鲸"),
+    Skin(id="bluewhale", name="Blue Whale", name_zh="蓝鲸"),
     Skin(id="threadcore", name="Threadcore", name_zh="线核"),
     Skin(id="nautilus", name="Nautilus", name_zh="鹦鹉螺"),
     Skin(id="jellyfish", name="Jellyfish", name_zh="水母"),
 )
 
-DEFAULT_SKIN_ID = "whale"
+DEFAULT_SKIN_ID = "deepseek"
 
 _BUILTIN_BY_ID = {skin.id: skin for skin in BUILTIN_SKINS}
 

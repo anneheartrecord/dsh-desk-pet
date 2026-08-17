@@ -53,37 +53,37 @@ class InventoryTests(unittest.TestCase):
 
 class LoopTests(unittest.TestCase):
     def test_loop_returns_a_real_file(self) -> None:
-        loop = packs.loop_for("whale", "idle")
+        loop = packs.loop_for("deepseek", "idle")
         frame = loop.frame_at(0)
         self.assertIsNotNone(frame)
         self.assertTrue(frame.is_file())
 
     def test_idle_loop_actually_changes_frame(self) -> None:
-        loop = packs.loop_for("whale", "idle")
+        loop = packs.loop_for("deepseek", "idle")
         seen = {loop.frame_at(t) for t in range(0, loop.timeline.total_ms, 20)}
         self.assertGreater(len(seen), 1, "idle never blinks")
 
     def test_skin_change_keeps_the_state_and_swaps_the_art(self) -> None:
-        whale = packs.loop_for("whale", "working").frame_at(0)
+        whale = packs.loop_for("deepseek", "working").frame_at(0)
         jelly = packs.loop_for("jellyfish", "working").frame_at(0)
         self.assertNotEqual(whale, jelly)
-        self.assertIn("whale", str(whale))
+        self.assertIn("deepseek", str(whale))
         self.assertIn("jellyfish", str(jelly))
 
     def test_each_state_paints_something_different(self) -> None:
         """Four states that share one image would make the mapping invisible."""
 
-        frames = {state: packs.loop_for("whale", state).frame_at(0) for state in CORE_STATES}
+        frames = {state: packs.loop_for("deepseek", state).frame_at(0) for state in CORE_STATES}
         self.assertEqual(len(set(frames.values())), len(CORE_STATES), f"states collapsed: {frames}")
 
 
 class FallbackTests(unittest.TestCase):
     def test_unknown_state_falls_back_rather_than_painting_nothing(self) -> None:
-        loop = packs.loop_for("whale", "happy")
+        loop = packs.loop_for("deepseek", "happy")
         self.assertIsNotNone(loop.frame_at(0), "happy has no art and no fallback")
 
     def test_fallback_is_reported_so_missing_art_is_visible(self) -> None:
-        loop = packs.loop_for("whale", "happy")
+        loop = packs.loop_for("deepseek", "happy")
         if loop.resolved_state != "happy":
             self.assertTrue(loop.is_fallback)
             self.assertEqual(loop.resolved_state, "idle")

@@ -95,7 +95,7 @@ await check('state reports live for a fresh file', async () => {
 await check('state reports not-live for a stale file', async () => {
   writeFileSync(
     path.join(home, '.dsh-desk-pet', 'state.json'),
-    JSON.stringify({ skin: 'whale', state: 'error', wall_ms: Date.now() - 60_000, pid: 1 }),
+    JSON.stringify({ skin: 'deepseek', state: 'error', wall_ms: Date.now() - 60_000, pid: 1 }),
   )
   const body = JSON.parse((await call('/dsh-desk-pet/state')).body)
   assert.equal(body.live, false, 'a killed pet must not keep the page animating')
@@ -129,7 +129,7 @@ await check('overlay script is served', async () => {
 })
 
 await check('a real frame is served as png', async () => {
-  const res = await call('/dsh-desk-pet/frames/', '/dsh-desk-pet/frames/whale/idle/00.png')
+  const res = await call('/dsh-desk-pet/frames/', '/dsh-desk-pet/frames/deepseek/idle/00.png')
   assert.equal(res.status, 200)
   assert.equal(res.headers['content-type'], 'image/png')
 })
@@ -145,7 +145,7 @@ await check('a malformed escape answers 400 rather than rejecting', async () => 
 })
 
 await check('non-png under frames is refused', async () => {
-  const res = await call('/dsh-desk-pet/frames/', '/dsh-desk-pet/frames/whale/idle/00.gif')
+  const res = await call('/dsh-desk-pet/frames/', '/dsh-desk-pet/frames/deepseek/idle/00.gif')
   assert.equal(res.status, 404)
 })
 

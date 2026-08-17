@@ -42,7 +42,8 @@ TIMEOUT_S = 300
 
 # What each skin *is*, so the prompt can name the body parts it should move.
 SKIN_SUBJECT = {
-    "whale": "baby whale",
+    "deepseek": "black whale (the DeepSeek logo whale, deep navy-black body)",
+    "bluewhale": "baby whale",
     "threadcore": "ball of yarn character with trailing threads",
     "nautilus": "nautilus shell creature",
     "jellyfish": "jellyfish with tentacles",
@@ -62,6 +63,14 @@ IDENTITY = (
 # state -> frame index -> the delta to apply.
 POSES: dict[str, dict[str, str]] = {
     "idle": {
+        # The rest pose with the eyes shut. A new skin has no hand-drawn art to
+        # inherit these from, so every frame the loops rely on has to be
+        # describable here.
+        "01": (
+            "Identical to the reference in every way except the eyes, which are fully closed into "
+            "two gentle downward curves, as in a blink. Do not change the mouth, the head angle, "
+            "the body or anything else."
+        ),
         # The in-between of the blink. The Codex atlas spends its two shortest
         # holds (110ms) on exactly this frame, and it is the whole reason its
         # idle reads as an eyelid moving rather than eyes cutting to black.
@@ -73,6 +82,11 @@ POSES: dict[str, dict[str, str]] = {
         ),
     },
     "working": {
+        "00": (
+            "Concentrating on work: brow furrowed in focus, eyes narrowed and looking down at what "
+            "it is doing, mouth set in a small determined line, and holding a pencil in one flipper "
+            "clearly visible against the body."
+        ),
         # Not a blink. An earlier pass made 01 a closed-eye frame, which is what
         # idle/01 already is — so half of `working` was pixel-identical to idle,
         # and the state's only signifier vanished every other frame.
@@ -108,6 +122,10 @@ POSES: dict[str, dict[str, str]] = {
         ),
     },
     "error": {
+        "00": (
+            "Upset that something failed: eyes wide and welling with tears, two large teardrops on "
+            "the cheeks, mouth open in a small distressed frown, body sagging slightly."
+        ),
         "01": (
             "The same upset pose one instant later, crying harder: eyes squeezed shut into tight "
             "downward arcs, two large tears flying outward, mouth open in a small wail. Keep the "

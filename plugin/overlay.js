@@ -20,13 +20,15 @@
   // dot, just a neutral one, so the overlay never has to be edited to
   // acknowledge a new skin exists.
   var SKIN_COLORS = {
-    whale: "#2f6feb",
+    deepseek: "#12161f",
+    bluewhale: "#2f6feb",
     threadcore: "#d9822b",
     nautilus: "#b56b3a",
     jellyfish: "#7c5cbf",
   };
   var SKIN_LABELS = {
-    whale: "鲸 Whale",
+    deepseek: "深索鲸 DeepSeek Whale",
+    bluewhale: "蓝鲸 Blue Whale",
     threadcore: "线核 Threadcore",
     nautilus: "鹦鹉螺 Nautilus",
     jellyfish: "水母 Jellyfish",
@@ -44,7 +46,7 @@
   var FALLBACK = { happy: "idle", sleeping: "idle", working: "idle", waiting: "idle", error: "idle" };
 
   var manifest = null;
-  var skin = "whale";
+  var skin = "deepseek";
   var state = "idle";
   var stateSince = performance.now();
   var followDesktop = true;

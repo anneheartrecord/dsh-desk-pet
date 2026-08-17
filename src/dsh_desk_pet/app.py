@@ -25,7 +25,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import bridge, nswindow, packs, prefs as prefs_store
+from . import bridge, nswindow, packs, prefs as prefs_store, sessions
 from .anim import motion_for
 from .mapper import AgentActivity
 from .observer import observe_activity
@@ -43,6 +43,8 @@ HEARTBEAT_MS = 2000
 TOPMOST_MS = 4000
 # How often to ask AppKit where the pointer is; the doze threshold is 90s.
 POINTER_MS = 400
+# How many sessions the click-panel lists before summarising the rest.
+PANEL_ROWS = 5
 # Set DSH_PET_DEBUG=1 to trace the observe -> state loop on stderr.
 DEBUG = os.environ.get("DSH_PET_DEBUG") == "1"
 
@@ -71,6 +73,7 @@ class DeskPetApp:
         self.painted_state = ""
         self.painted_frame: Path | None = None
         self.window: nswindow.PetWindow | None = None
+        self.panel: nswindow.PanelWindow | None = None
         self._running = False
         self._published: tuple[str, str] | None = None
         self._published_at_ms = -HEARTBEAT_MS
@@ -144,11 +147,73 @@ class DeskPetApp:
         return state
 
     def _on_click(self) -> None:
+        """A poke, and a look at what DSH is up to.
+
+        Clicking a desk pet should tell you something. The panel is the answer
+        to the question the pet raises just by sitting there — which sessions
+        are running, and which one is busy.
+        """
+
         self.runtime.poke(self.clock())
+        self.toggle_panel()
+
+    def panel_rows(self) -> tuple[list[tuple[bool, str, str, str]], str]:
+        """(rows, footer) for the session panel.
+
+        Kept here rather than in the window so what the panel *says* is
+        testable without a display.
+        """
+
+        shown = sessions.list_sessions(limit=PANEL_ROWS)
+        rows = []
+        for session in shown:
+            badge = ""
+            if session.active:
+                # Only the pet's own state can say what a live session is
+                # doing; the filesystem only knows that it moved.
+                badge = {"working": "Working", "waiting": "Waiting",
+                         "error": "Error"}.get(self.runtime.state, "Active")
+            rows.append((session.active, session.title, badge, session.age_label()))
+
+        total = sessions.total_count()
+        hidden = max(0, total - len(shown))
+        return rows, (f"{hidden} other session{'s' if hidden != 1 else ''}" if hidden else "")
+
+    def toggle_panel(self) -> None:
+        if self.window is None:
+            return
+        if self.panel is not None and self.panel.visible:
+            self.panel.hide()
+            return
+        if self.panel is None:
+            self.panel = nswindow.PanelWindow()
+        rows, footer = self.panel_rows()
+        if not rows:
+            rows = [(False, "no DSH sessions yet", "", "")]
+        origin = self._panel_origin(*self.window.position())
+        self.panel.show(rows, x=origin[0], y=origin[1], footer=footer)
 
     def _on_moved(self, x: int, y: int) -> None:
         self.prefs.x, self.prefs.y = int(x), int(y)
         self._save_prefs()
+        # The panel is anchored to the pet, so it has to travel with it.
+        # Leaving it behind makes them read as two unrelated windows.
+        self._reposition_panel()
+
+    def _reposition_panel(self) -> None:
+        if self.window is None or self.panel is None or not self.panel.visible:
+            return
+        x, y = self.window.position()
+        self.panel.move_to(*self._panel_origin(x, y))
+
+    def _panel_origin(self, x: int, y: int) -> tuple[int, int]:
+        """Where the panel's top-left goes, given the pet's.
+
+        Under the pet and nudged left, so a panel wider than the pet still has
+        somewhere to be when the pet is near the left edge of the screen.
+        """
+
+        return max(8, x - 60), y + self.canvas_side - 8
 
     def _save_prefs(self) -> None:
         if not self.save_prefs:
@@ -257,6 +322,9 @@ class DeskPetApp:
     def quit(self) -> None:
         self._running = False
         self._stop_watch.set()
+        if self.panel is not None:
+            self.panel.close()
+            self.panel = None
         if self.window is not None:
             self.window.close()
             self.window = None

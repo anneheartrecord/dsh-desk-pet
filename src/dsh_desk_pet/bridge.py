@@ -71,9 +71,9 @@ def read(home: Path | None = None) -> dict:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {"skin": "whale", "state": "idle", "epoch_ms": 0}
+        return {"skin": "deepseek", "state": "idle", "epoch_ms": 0}
     if not isinstance(payload, dict):
-        return {"skin": "whale", "state": "idle", "epoch_ms": 0}
+        return {"skin": "deepseek", "state": "idle", "epoch_ms": 0}
     return payload
 
 

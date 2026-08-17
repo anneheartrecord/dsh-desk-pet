@@ -33,7 +33,7 @@ class PaintingTests(unittest.TestCase):
         self.app.render(0)
 
     def test_default_is_whale_idle(self) -> None:
-        self.assertEqual(self.app.painted_skin, "whale")
+        self.assertEqual(self.app.painted_skin, "deepseek")
         self.assertEqual(self.app.painted_state, "idle")
 
     def test_paints_rgba_frames_now_that_appkit_can_composite_them(self) -> None:
@@ -104,6 +104,43 @@ class HitTestTests(unittest.TestCase):
             self.assertIsNotNone(packs.subject_box(skin), f"{skin} has no subject box")
 
 
+class PanelContentTests(unittest.TestCase):
+    """What the click-panel says, asserted without opening one."""
+
+    def setUp(self) -> None:
+        self.app = _app([0])
+
+    def test_rows_are_plain_data(self) -> None:
+        rows, footer = self.app.panel_rows()
+        self.assertIsInstance(rows, list)
+        self.assertIsInstance(footer, str)
+        for active, title, badge, age in rows:
+            self.assertIsInstance(active, bool)
+            self.assertTrue(title, "a row with no label is not worth drawing")
+            self.assertIsInstance(badge, str)
+            self.assertIsInstance(age, str)
+
+    def test_a_live_session_is_badged_with_what_the_pet_is_doing(self) -> None:
+        """The filesystem knows a session moved; only the pet knows why."""
+
+        self.app.apply_activity(AgentActivity(kind="running"))
+        rows, _ = self.app.panel_rows()
+        for active, _title, badge, _age in rows:
+            if active:
+                self.assertEqual(badge, "Working")
+
+    def test_idle_rows_carry_no_badge(self) -> None:
+        rows, _ = self.app.panel_rows()
+        for active, _title, badge, _age in rows:
+            if not active:
+                self.assertEqual(badge, "")
+
+    def test_panel_is_not_built_before_the_window(self) -> None:
+        self.assertIsNone(self.app.panel)
+        self.app.toggle_panel()
+        self.assertIsNone(self.app.panel, "panel opened with nowhere to anchor it")
+
+
 class ProbeTests(unittest.TestCase):
     def test_probe_needs_no_display(self) -> None:
         app = _app([0])
@@ -129,8 +166,28 @@ class RendererTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_panel_opens_and_closes(self) -> None:
+        panel = nswindow.PanelWindow()
+        try:
+            self.assertFalse(panel.visible)
+            panel.show([(True, "session", "Working", "just now")], x=200, y=200, footer="2 others")
+            self.assertTrue(panel.visible)
+            panel.hide()
+            self.assertFalse(panel.visible)
+        finally:
+            panel.close()
+
+    def test_panel_redraw_does_not_leak_layers(self) -> None:
+        panel = nswindow.PanelWindow()
+        try:
+            for index in range(6):
+                panel.show([(False, f"row {index}", "", "1m ago")], x=100, y=100)
+            self.assertLessEqual(len(panel._layers), 8, "old rows were never removed")
+        finally:
+            panel.close()
+
     def test_window_shows_a_frame_without_raising(self) -> None:
-        frame = packs.loop_for("whale", "idle", web=True).frame_at(0)
+        frame = packs.loop_for("deepseek", "idle", web=True).frame_at(0)
         self.assertIsInstance(frame, Path)
         window = nswindow.PetWindow(120, 120, x=200, y=200)
         try:
