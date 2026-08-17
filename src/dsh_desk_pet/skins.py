@@ -1,7 +1,7 @@
-"""The skin catalog: four shipped skins, plus anything found on disk.
+"""The skin catalog: the shipped skins, plus anything found on disk.
 
 The catalog is not a hard-coded list, because a skin is really just a folder of
-frames. Dropping `assets/skins/<id>/<state>/*.gif` in place is enough to make a
+frames. Dropping `assets/web/<id>/<state>/*.png` in place is enough to make a
 new one selectable — which is what lets a custom skin be generated from a photo
 later without touching this file.
 
@@ -14,6 +14,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+# Discovery looks at the PNG tree, because that is the one the renderer plays:
+# every call site passes web=True. Gating on `assets/skins/*/*.gif` instead
+# meant a skin was only discoverable if it also carried frames in the format the
+# dead Tk path used — so a hand-added skin was invisible, and once the GIFs
+# stopped shipping there was nothing to find at all.
+FRAME_ROOT = Path(__file__).resolve().parents[2] / "assets" / "web"
+# Kept for the manifest's sake; not what decides whether a skin exists.
 SKIN_ROOT = Path(__file__).resolve().parents[2] / "assets" / "skins"
 
 
@@ -47,14 +54,14 @@ def _title(skin_id: str) -> str:
 def _discovered() -> tuple[Skin, ...]:
     """Skin folders on disk that are not part of the shipped set."""
 
-    if not SKIN_ROOT.is_dir():
+    if not FRAME_ROOT.is_dir():
         return ()
     found = []
-    for entry in sorted(SKIN_ROOT.iterdir()):
+    for entry in sorted(FRAME_ROOT.iterdir()):
         if not entry.is_dir() or entry.name in _BUILTIN_BY_ID or entry.name.startswith("."):
             continue
         # A folder with no frames is a half-finished import, not a skin.
-        if not any(entry.glob("*/*.gif")):
+        if not any(entry.glob("*/*.png")):
             continue
         name = _title(entry.name)
         found.append(Skin(id=entry.name, name=name, name_zh=name, builtin=False))

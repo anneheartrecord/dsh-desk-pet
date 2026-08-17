@@ -11,6 +11,7 @@
 </p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/dsh-desk-pet"><img src="https://img.shields.io/npm/v/dsh-desk-pet.svg?color=cb3837&label=npm" alt="npm"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/python-system%20only-3776AB.svg" alt="System Python">
   <img src="https://img.shields.io/badge/dependencies-none-2ea44f.svg" alt="No dependencies">
@@ -33,14 +34,20 @@
 With DSH already set up, one command:
 
 ```bash
-dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
+dsh plugin --profile web add dsh-desk-pet
 dsh web
 ```
 
 The pet appears on your desktop, and a synced mirror sits in the bottom-right
 of the DSH page.
 
-Pet only, no DSH: clone the repo and run `./bin/dsh-desk-pet`.
+Pet only, no DSH: `npx dsh-desk-pet`.
+
+To follow the main branch instead of the published version:
+
+```bash
+dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
+```
 
 **No dependencies.** It runs on the system `/usr/bin/python3` and talks to
 AppKit through `ctypes`. Nothing to install, nothing to build.
@@ -158,7 +165,7 @@ holes punched through its face.
 
 ### Custom skins
 
-A skin is a folder of frames. Anything at `assets/skins/<id>/<state>/*.png`
+A skin is a folder of frames. Anything at `assets/web/<id>/<state>/*.png`
 appears in the cycle on its own, with no code change.
 
 ## Known limits

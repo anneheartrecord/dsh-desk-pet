@@ -36,11 +36,39 @@ class PackageTests(unittest.TestCase):
         self.assertIn("id: dsh-desk-pet", _read("cordis.patch.yml"))
 
     def test_published_files_include_the_art(self) -> None:
-        """Installing from git and getting a pet with no frames is the old bug."""
+        """Installing and getting a pet with no frames is the old bug.
+
+        Checks the PNG tree and the manifest specifically. The GIF tree is
+        deliberately not shipped: every renderer call site passes web=True, so
+        the GIFs are left over from the Tk path and were a quarter of the
+        download. If a GIF reader ever comes back, this is the test to change.
+        """
 
         files = self.pkg["files"]
-        self.assertIn("assets/skins", files, "GIF frames would not ship")
-        self.assertIn("assets/web", files, "overlay PNG frames would not ship")
+        self.assertIn("assets/web", files, "the frames the renderer plays would not ship")
+        self.assertIn(
+            "assets/skins/manifest.json", files,
+            "the manifest carries frame timings and subject boxes",
+        )
+
+    def test_every_shipped_skin_is_covered_by_the_published_files(self) -> None:
+        """A skin the catalog offers but the tarball omits is a broken install."""
+
+        import sys
+
+        sys.path.insert(0, str(ROOT / "src"))
+        from dsh_desk_pet import skins
+
+        covered = set(self.pkg["files"])
+        for skin in skins.BUILTIN_SKINS:
+            frames = ROOT / "assets" / "web" / skin.id
+            self.assertTrue(frames.is_dir(), f"{skin.id} has no frames on disk")
+            # 'assets/web' covers every skin under it; spelled out so a future
+            # narrowing of `files` to individual skins still has to pass here.
+            self.assertTrue(
+                "assets/web" in covered or f"assets/web/{skin.id}" in covered,
+                f"{skin.id} is selectable but would not ship",
+            )
 
     def test_published_files_exclude_the_chroma_key_sources(self) -> None:
         """`assets/source` is build input; shipping it doubles the download."""

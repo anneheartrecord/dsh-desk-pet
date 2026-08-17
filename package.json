@@ -26,7 +26,7 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "assets/skins",
+    "assets/skins/manifest.json",
     "assets/web",
     "bin",
     "plugin",
@@ -49,5 +49,8 @@
   "scripts": {
     "start": "bin/dsh-desk-pet",
     "test": "/usr/bin/python3 -m unittest discover -s tests -v"
-  }
+  },
+  "os": [
+    "darwin"
+  ]
 }

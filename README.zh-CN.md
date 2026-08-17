@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/dsh-desk-pet"><img src="https://img.shields.io/npm/v/dsh-desk-pet.svg?color=cb3837&label=npm" alt="npm"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/python-系统自带-3776AB.svg" alt="System Python">
   <img src="https://img.shields.io/badge/依赖-零-2ea44f.svg" alt="No dependencies">
@@ -32,13 +33,19 @@
 已有 DSH，一条命令：
 
 ```bash
-dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
+dsh plugin --profile web add dsh-desk-pet
 dsh web
 ```
 
 宠物会浮在桌面上，DSH 页面右下角还有一只同步的镜像。
 
-不要 DSH、只开宠物：克隆后执行 `./bin/dsh-desk-pet`。
+不要 DSH、只开宠物：`npx dsh-desk-pet`。
+
+想跟 main 分支而不是已发布版本：
+
+```bash
+dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
+```
 
 **零依赖。** 跑在系统自带的 `/usr/bin/python3` 上，靠 `ctypes` 直接调 AppKit。不装任何东西，也不用编译。
 
@@ -133,7 +140,7 @@ node tests/plugin_smoke.mjs                                 # 插件的 HTTP 路
 
 ### 自定义皮肤
 
-皮肤就是一个装帧的目录。只要 `assets/skins/<id>/<状态>/*.png` 存在，它就会自动进入换肤循环，不用改代码。
+皮肤就是一个装帧的目录。只要 `assets/web/<id>/<状态>/*.png` 存在，它就会自动进入换肤循环，不用改代码。
 
 ## 已知限制
 
