@@ -196,6 +196,37 @@ class RendererTests(unittest.TestCase):
             panel.close()
             pet.close()
 
+    def test_panel_still_travels_after_being_closed_and_reopened(self) -> None:
+        """The bug the test above could not see, because it never hid the panel.
+
+        `orderOut:` takes a window out of its parent's child list, so attaching
+        once at creation only held for the first open. Every open after that
+        looked right until the pet was dragged, at which point the list stayed
+        behind. This walks the sequence a user actually performs: open, close,
+        open again, then move.
+        """
+
+        pet = nswindow.PetWindow(160, 160, x=300, y=300)
+        panel = nswindow.PanelWindow()
+        try:
+            rows = [(True, "row", "Working", "now")]
+            panel.show(rows, x=250, y=480)
+            panel.attach_to(pet)
+            panel.hide()
+            panel.show(rows, x=250, y=480)
+
+            before = panel._rect(panel._window, panel.rt.sel("frame")).x
+            pet.move_to(600, 350)
+            pet.pump(0.05)
+            after = panel._rect(panel._window, panel.rt.sel("frame")).x
+            self.assertEqual(
+                after - before, 300,
+                "panel stopped following the pet after being reopened",
+            )
+        finally:
+            panel.close()
+            pet.close()
+
     def test_panel_redraw_does_not_leak_layers(self) -> None:
         panel = nswindow.PanelWindow()
         try:

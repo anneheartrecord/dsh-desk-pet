@@ -44,6 +44,14 @@ const WEB_ASSETS = path.join(ROOT, 'assets', 'web')
 const MANIFEST = path.join(ROOT, 'assets', 'skins', 'manifest.json')
 const STATE_FILE = path.join(os.homedir(), '.dsh-desk-pet', 'state.json')
 
+// Registered WITHOUT a trailing slash. DSH matches a prefix `p` against `p` and
+// `p/<anything>`, so registering '/dsh-desk-pet/frames/' matched only that exact
+// path and would have needed a doubled slash to match anything below it: every
+// frame request fell through to the SPA and the page got index.html where it
+// expected a PNG, which renders as a broken-image icon.
+const FRAMES_PREFIX = '/dsh-desk-pet/frames'
+
+
 // The fallback shown when no desktop pet is publishing. `skin` has to name a
 // skin that actually ships: it read 'whale' long after that folder was renamed,
 // so every no-pet page asked for /frames/whale/idle/00.png, got a 404 and
@@ -156,7 +164,7 @@ export function apply(ctx) {
   // gets real alpha because it can actually composite it.
   const unframes = ctx.webServer.register({
     kind: 'prefix',
-    path: '/dsh-desk-pet/frames/',
+    path: FRAMES_PREFIX,
     handler: async (req, res) => {
       if (req.method !== 'GET') return sendJson(res, { error: 'method not allowed' }, 405)
       let rel
@@ -164,7 +172,8 @@ export function apply(ctx) {
         // A stray '%' makes decodeURIComponent throw, and an unhandled throw in
         // an async handler is a rejected promise, not a response.
         rel = decodeURIComponent(new URL(req.url, 'http://x').pathname)
-          .slice('/dsh-desk-pet/frames/'.length)
+          .slice(FRAMES_PREFIX.length)
+          .replace(/^\/+/, '')
       } catch {
         res.writeHead(400)
         return res.end()

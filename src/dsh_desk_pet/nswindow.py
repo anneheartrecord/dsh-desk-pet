@@ -579,15 +579,19 @@ class PanelWindow:
 
         self._ptr_ptr(self._window, rt.sel("orderFront:"), None)
         self._visible = True
+        self._ensure_child()
 
     def attach_to(self, parent: "PetWindow") -> None:
-        """Make the panel a child window of the pet.
+        """Remember the pet as this panel's parent, and attach to it.
 
-        AppKit then moves it with the parent itself, which is the only way to
-        keep them together during a drag: `performWindowDragWithEvent:` runs
+        AppKit then moves the panel with the parent itself, which is the only way
+        to keep them together during a drag: `performWindowDragWithEvent:` runs
         its own event loop and does not return until the mouse comes up, so no
-        amount of following from our own loop can help — our loop is not
-        running. A child window needs no help.
+        amount of following from our own loop can help, because our loop is not
+        running.
+
+        The parent is remembered rather than only used, because the relationship
+        does not survive being hidden: see `_ensure_child`.
         """
 
         rt = self.rt
@@ -599,6 +603,27 @@ class PanelWindow:
             self._parent = parent
         except Exception:
             self._parent = None
+
+    def _ensure_child(self) -> None:
+        """Re-attach to the remembered parent, if there is one.
+
+        `orderOut:` takes a window out of its parent's child list, so the
+        relationship established once at creation was gone the moment the panel
+        was closed, and every open after the first was an ordinary sibling
+        window: it tracked the pet while our loop ran, then stayed behind the
+        instant a drag started. Attaching on every show is what makes the two
+        move as one piece however many times the panel is toggled.
+        """
+
+        if self._parent is None or self._closed:
+            return
+        rt = self.rt
+        try:
+            add_child = rt.sig(None, ctypes.c_void_p, ctypes.c_long)
+            add_child(self._parent._window, rt.sel("addChildWindow:ordered:"),
+                      self._window, 1)
+        except Exception:
+            pass
 
     def move_to(self, x: int, y: int) -> None:
         """Move the panel without rebuilding its rows.

@@ -8,7 +8,7 @@
  * Run: node tests/plugin_smoke.mjs   (exits non-zero on failure)
  */
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -59,21 +59,56 @@ const ctx = {
 
 apply(ctx)
 
+/**
+ * Resolve a URL the way DSH's web server does, rather than by exact key.
+ *
+ * From packages/host/webserver: "'exact' matches the pathname verbatim;
+ * 'prefix' p matches p and p/<anything>". Looking routes up by the string they
+ * were registered under is what let a prefix registered WITH a trailing slash
+ * pass every test here while matching nothing but itself in the real server —
+ * every frame request fell through to the SPA and the page showed a broken
+ * image. Longest match wins, as it must for '/api' and '/api/deep' to coexist.
+ */
+const resolve = (url) => {
+  const pathname = new URL(url, 'http://x').pathname
+  let best
+  for (const [routePath, entry] of routes) {
+    const hit = entry.kind === 'exact'
+      ? pathname === routePath
+      : pathname === routePath || pathname.startsWith(routePath + '/')
+    if (!hit) continue
+    if (!best || routePath.length > best.routePath.length) best = { routePath, entry }
+  }
+  return best
+}
+
 const call = async (routePath, url = routePath, method = 'GET', headers = undefined) => {
-  const entry = routes.get(routePath)
-  assert.ok(entry, `no route registered at ${routePath}`)
+  const match = resolve(url)
+  assert.ok(match, `nothing in the router matches ${url}`)
   const res = fakeRes()
   // `headers` stays undefined by default on purpose: a handler must not assume
   // the property exists, and leaving it out is what caught that assumption.
-  await entry.handler({ method, url, headers }, res)
+  await match.entry.handler({ method, url, headers }, res)
   return res
 }
+
 
 let failures = 0
 const check = async (label, fn) => {
   try { await fn(); console.log(`  ok   ${label}`) }
   catch (err) { failures++; console.log(`  FAIL ${label}\n       ${err.message}`) }
 }
+
+await check('routes are reachable at the URLs the page actually requests', async () => {
+  for (const url of [
+    '/dsh-desk-pet/state',
+    '/dsh-desk-pet/manifest.json',
+    '/dsh-desk-pet/overlay.js',
+    '/dsh-desk-pet/frames/deepseek/idle/00.png',
+  ]) {
+    assert.ok(resolve(url), `no route would serve ${url}; the page would get the SPA`)
+  }
+})
 
 await check('state reports not-live when no pet has ever run', async () => {
   const res = await call('/dsh-desk-pet/state')
@@ -174,8 +209,20 @@ await check('the no-pet fallback names a skin that actually ships', async () => 
 })
 
 await check('path traversal is refused', async () => {
-  const res = await call('/dsh-desk-pet/frames/', '/dsh-desk-pet/frames/../../../../etc/passwd')
+  // Percent-encoded, because that is the form that actually reaches a handler:
+  // `new URL()` collapses a literal '../..' before routing, so the plain version
+  // resolves to /etc/passwd, matches no route of ours, and tests nothing.
+  const res = await call(
+    '/dsh-desk-pet/frames',
+    '/dsh-desk-pet/frames/%2e%2e%2f%2e%2e%2f%2e%2e%2f%2e%2e%2fetc/passwd',
+  )
   assert.equal(res.status, 404)
+})
+
+await check('a traversal that resolves outside our prefix never reaches us', async () => {
+  // The other half of the defence, and the reason the check above changed:
+  // the router must not hand us a path that has already escaped.
+  assert.equal(resolve('/dsh-desk-pet/frames/../../../../etc/passwd'), undefined)
 })
 
 await check('a malformed escape answers 400 rather than rejecting', async () => {
@@ -199,6 +246,37 @@ await check('teardown removes every route and tap', async () => {
   for (const fn of teardown) fn()
   assert.equal(routes.size, 0, `routes left registered: ${[...routes.keys()]}`)
   assert.equal(taps.length, 0)
+})
+
+await check('the client factory returns a module DSH will accept', async () => {
+  // The client module runs in the browser, so nothing else here touches it. DSH
+  // rejected the whole plugin because this factory returned descriptive metadata
+  // ({ id, root }) instead of a module whose `apply` is a function: the page lost
+  // its pet, and the only symptom was a loader error naming a hash.
+  const src = readFileSync(new URL('../plugin/client.js', import.meta.url), 'utf8')
+  let loaded
+  const sandbox = {
+    window: { __ModuleLoader__: { load: (entry) => { loaded = entry } } },
+    document: {
+      readyState: 'complete',
+      querySelector: () => null,
+      getElementById: () => null,
+      createElement: () => ({ setAttribute() {} }),
+      addEventListener() {},
+      removeEventListener() {},
+      body: { appendChild() {} },
+    },
+    console,
+  }
+  new Function(...Object.keys(sandbox), src)(...Object.values(sandbox))
+
+  assert.ok(loaded, 'client.js never registered with the module loader')
+  assert.equal(loaded.id, 'dsh-desk-pet')
+  const exported = loaded.factory(() => {})
+  // Verbatim what vendor/cordis/src/registry.ts uses to decide validity.
+  const applicable = exported && typeof exported === 'object'
+    && typeof exported.apply === 'function'
+  assert.ok(applicable, `factory returned ${typeof exported} without a callable apply`)
 })
 
 rmSync(home, { recursive: true, force: true })
