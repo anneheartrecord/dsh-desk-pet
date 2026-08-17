@@ -1,4 +1,9 @@
 # DSH bundle layer: mount the host plugin that launches the desktop pet.
+#
+# `name` is the module specifier DSH imports (vendor/loader entry.ts resolves
+# `options.name`), so it has to be the published package name and not the repo
+# name — those differ here, because npm rejected `dsh-desk-pet` as too similar to
+# an unrelated `dsh-deskpet` published two days earlier.
 - insert:
-    - id: dsh-desk-pet
-      name: dsh-desk-pet
+    - id: deepseek-desk-pet
+      name: deepseek-desk-pet

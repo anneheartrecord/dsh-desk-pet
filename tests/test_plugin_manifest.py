@@ -27,14 +27,20 @@ class PackageTests(unittest.TestCase):
         self.pkg = json.loads(_read("package.json"))
 
     def test_identifies_as_a_dsh_bundle(self) -> None:
-        self.assertEqual(self.pkg["name"], "dsh-desk-pet")
+        self.assertEqual(self.pkg["name"], "deepseek-desk-pet")
         self.assertEqual(self.pkg["dsh"]["bundle"]["patch"], "./cordis.patch.yml")
         self.assertIn("dsh-plugin", self.pkg["keywords"])
         # Deliberately no `dsh.client`: this plugin has no page-side half.
         # ShippedSurfaceTests asserts that absence with the reason attached.
 
-    def test_cordis_patch_inserts_the_plugin(self) -> None:
-        self.assertIn("id: dsh-desk-pet", _read("cordis.patch.yml"))
+    def test_cordis_patch_imports_the_published_package_name(self) -> None:
+        """The patch entry's `name` is the module specifier DSH imports, so it
+        must be the npm name rather than the repo name. Those differ here: npm
+        rejected `dsh-desk-pet` as too similar to an unrelated `dsh-deskpet`, so
+        a patch naming the repo would resolve to nothing on a fresh install."""
+
+        patch = _read("cordis.patch.yml")
+        self.assertIn(f'name: {self.pkg["name"]}', patch)
 
     def test_published_files_include_the_art(self) -> None:
         """Installing and getting a pet with no frames is the old bug.

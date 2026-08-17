@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/dsh-desk-pet"><img src="https://img.shields.io/npm/v/dsh-desk-pet.svg?color=cb3837&label=npm" alt="npm"></a>
+  <a href="https://www.npmjs.com/package/deepseek-desk-pet"><img src="https://img.shields.io/npm/v/deepseek-desk-pet.svg?color=cb3837&label=npm" alt="npm"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/python-system%20only-3776AB.svg" alt="System Python">
   <img src="https://img.shields.io/badge/dependencies-none-2ea44f.svg" alt="No dependencies">
@@ -34,7 +34,7 @@
 With DSH already set up, one command:
 
 ```bash
-dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
+dsh plugin --profile web add deepseek-desk-pet
 dsh web
 ```
 
@@ -43,12 +43,15 @@ Nothing is added to the DSH page itself.
 
 Pet only, no DSH: clone the repo and run `./bin/dsh-desk-pet`.
 
-Not on npm yet. Once it is published, the shorter form works and the badge above
-stops reading "not found":
+To follow the main branch instead of the published version:
 
 ```bash
-dsh plugin --profile web add dsh-desk-pet   # after the first npm release
+dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
 ```
+
+> The npm package is **deepseek-desk-pet** while the repo is **dsh-desk-pet**:
+> npm rejects `dsh-desk-pet` as too similar to an unrelated `dsh-deskpet`.
+
 
 **No dependencies.** It runs on the system `/usr/bin/python3` and talks to
 AppKit through `ctypes`. Nothing to install, nothing to build.
