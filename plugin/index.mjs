@@ -15,7 +15,7 @@
  * agent doing" instead of reimplementing the heuristics in Node.
  */
 import { spawn } from 'node:child_process'
-import { createReadStream, existsSync, readFileSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -26,12 +26,29 @@ export const inject = ['webServer']
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const LAUNCHER = path.join(ROOT, 'bin', 'dsh-desk-pet')
-const OVERLAY = readFileSync(path.join(ROOT, 'plugin', 'overlay.js'), 'utf8')
+const OVERLAY_FILE = path.join(ROOT, 'plugin', 'overlay.js')
+
+// Read per use, not once at import. `dsh web` is a long-running server, so a
+// module-level read pinned whatever the overlay looked like when the server
+// booted: a session started before a fifth skin was added kept inlining the
+// four-skin overlay into every page, with no way to tell from the browser side.
+// The file is a few KB of local disk next to code we already trust.
+function overlaySource() {
+  try {
+    return readFileSync(OVERLAY_FILE, 'utf8')
+  } catch {
+    return '/* dsh-desk-pet: overlay.js unreadable */'
+  }
+}
 const WEB_ASSETS = path.join(ROOT, 'assets', 'web')
 const MANIFEST = path.join(ROOT, 'assets', 'skins', 'manifest.json')
 const STATE_FILE = path.join(os.homedir(), '.dsh-desk-pet', 'state.json')
 
-const IDLE_STATE = { skin: 'whale', state: 'idle', epoch_ms: 0 }
+// The fallback shown when no desktop pet is publishing. `skin` has to name a
+// skin that actually ships: it read 'whale' long after that folder was renamed,
+// so every no-pet page asked for /frames/whale/idle/00.png, got a 404 and
+// rendered nothing at all rather than a resting pet.
+const IDLE_STATE = { skin: 'deepseek', state: 'idle', epoch_ms: 0 }
 // Must stay above the desktop pet's heartbeat (HEARTBEAT_MS in app.py).
 const STALE_AFTER_MS = 6000
 
@@ -131,7 +148,7 @@ export function apply(ctx) {
         'content-type': 'application/javascript; charset=utf-8',
         'cache-control': 'no-store',
       })
-      res.end(OVERLAY)
+      res.end(overlaySource())
     },
   })
 
@@ -157,9 +174,28 @@ export function apply(ctx) {
         res.writeHead(404)
         return res.end()
       }
+      // Revalidate rather than cache outright. Frame URLs are stable across
+      // rebuilds — `deepseek/idle/00.png` is the same path before and after the
+      // art changes — so a plain max-age served a whole day of stale art: after
+      // rebuilding every frame, the page kept showing the pre-key pastel-plate
+      // version it had already downloaded. An ETag keeps the bytes off the wire
+      // (304s) without letting the browser skip asking.
+      let tag
+      try {
+        const st = statSync(file)
+        tag = `"${st.size.toString(36)}-${st.mtimeMs.toString(36)}"`
+      } catch {
+        res.writeHead(404)
+        return res.end()
+      }
+      if (req.headers?.['if-none-match'] === tag) {
+        res.writeHead(304, { etag: tag, 'cache-control': 'no-cache' })
+        return res.end()
+      }
       res.writeHead(200, {
         'content-type': 'image/png',
-        'cache-control': 'public, max-age=86400',
+        'cache-control': 'no-cache',
+        etag: tag,
       })
       createReadStream(file).pipe(res)
     },
@@ -167,7 +203,7 @@ export function apply(ctx) {
 
   const untap = ctx.webServer.tapIndex((html) => {
     if (html.includes('dsh-desk-pet-root') || html.includes('__dshDeskPetMounted')) return html
-    const tag = `<script>${OVERLAY}</script>`
+    const tag = `<script>${overlaySource()}</script>`
     if (html.includes('</body>')) return html.replace('</body>', `${tag}</body>`)
     return html + tag
   })

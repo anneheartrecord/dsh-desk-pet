@@ -59,11 +59,13 @@ const ctx = {
 
 apply(ctx)
 
-const call = async (routePath, url = routePath, method = 'GET') => {
+const call = async (routePath, url = routePath, method = 'GET', headers = undefined) => {
   const entry = routes.get(routePath)
   assert.ok(entry, `no route registered at ${routePath}`)
   const res = fakeRes()
-  await entry.handler({ method, url }, res)
+  // `headers` stays undefined by default on purpose: a handler must not assume
+  // the property exists, and leaving it out is what caught that assumption.
+  await entry.handler({ method, url, headers }, res)
   return res
 }
 
@@ -132,6 +134,43 @@ await check('a real frame is served as png', async () => {
   const res = await call('/dsh-desk-pet/frames/', '/dsh-desk-pet/frames/deepseek/idle/00.png')
   assert.equal(res.status, 200)
   assert.equal(res.headers['content-type'], 'image/png')
+})
+
+// The bug these two exist for: frame URLs never change across an art rebuild,
+// so a plain max-age let a browser keep showing art that had been replaced —
+// a whole day of the pre-key pastel-plate whale in a page that looked fine.
+await check('a frame carries a validator and is not blindly cacheable', async () => {
+  const res = await call('/dsh-desk-pet/frames/', '/dsh-desk-pet/frames/deepseek/idle/00.png')
+  assert.equal(res.status, 200)
+  assert.ok(res.headers.etag, 'no etag, so the browser cannot revalidate')
+  assert.doesNotMatch(
+    String(res.headers['cache-control'] ?? ''),
+    /max-age=(?!0)\d+/,
+    'a non-zero max-age lets stale art survive a rebuild',
+  )
+})
+
+await check('an unchanged frame answers 304, a rebuilt one does not', async () => {
+  const first = await call('/dsh-desk-pet/frames/', '/dsh-desk-pet/frames/deepseek/idle/00.png')
+  const tag = first.headers.etag
+  const again = await call(
+    '/dsh-desk-pet/frames/', '/dsh-desk-pet/frames/deepseek/idle/00.png', 'GET',
+    { 'if-none-match': tag },
+  )
+  assert.equal(again.status, 304)
+  // A rebuild changes size or mtime, so the old validator must stop matching.
+  const stale = await call(
+    '/dsh-desk-pet/frames/', '/dsh-desk-pet/frames/deepseek/idle/00.png', 'GET',
+    { 'if-none-match': '"stale-from-a-previous-build"' },
+  )
+  assert.equal(stale.status, 200)
+})
+
+await check('the no-pet fallback names a skin that actually ships', async () => {
+  const res = await call('/dsh-desk-pet/state')
+  const { skin } = JSON.parse(res.body)
+  const frame = await call('/dsh-desk-pet/frames/', `/dsh-desk-pet/frames/${skin}/idle/00.png`)
+  assert.equal(frame.status, 200, `fallback skin ${skin} has no frames on disk`)
 })
 
 await check('path traversal is refused', async () => {
