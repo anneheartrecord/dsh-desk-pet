@@ -2,11 +2,12 @@
 
 `scripts/build_frames.py` writes two trees from one set of stills:
 
-* ``assets/skins/<skin>/<state>/NN.gif`` — what the desktop window blits.
-  macOS ships Tk 8.5, whose ``PhotoImage`` reads GIF only, so GIF is not a
-  legacy choice here, it is the only one.
-* ``assets/web/<skin>/<state>/NN.png`` — RGBA for the in-page overlay, which
-  runs in a browser and would rather have real alpha than a 1-bit matte.
+* ``assets/web/<skin>/<state>/NN.png`` — RGBA, used by *both* players now.
+  The desktop pet draws through AppKit, which composites real alpha.
+* ``assets/skins/<skin>/<state>/NN.gif`` — the same frames as a 1-bit matte.
+  Kept because the pipeline and its gate are built around comparing the two,
+  and because a GIF is the portable fallback if the pet is ever hosted by
+  something that cannot take a PNG. Nothing shipped reads them at runtime.
 
 A state with no art on disk falls back down `FALLBACK_STATE` rather than
 rendering nothing, so a half-finished art pass degrades to a duller pet instead
@@ -41,7 +42,7 @@ FALLBACK_STATE = {
 
 # A guard against half-written downloads, not a quality bar. Every real frame
 # the build emits is tens of KB; anything this small is a truncated file, and
-# loading one would crash Tk's GIF reader rather than just look wrong.
+# loading one would fail to decode rather than just look wrong.
 MIN_FRAME_BYTES = 400
 
 
@@ -168,6 +169,20 @@ def pack_inventory(*, web: bool = False) -> dict[str, dict[str, int]]:
         skin: {state: len(frames_for(skin, state, web=web)) for state in STATES}
         for skin in skins
     }
+
+
+def subject_box(skin_id: str) -> tuple[int, int, int, int] | None:
+    """Where the character sits inside its padded frame, in frame pixels.
+
+    Recorded by the build. The window uses it for hit testing, so a click on an
+    empty corner falls through to whatever is behind the pet instead of being
+    swallowed by the window rectangle.
+    """
+
+    box = manifest().get("skins", {}).get(skin_id, {}).get("subject_box")
+    if not box or len(box) != 4:
+        return None
+    return tuple(int(v) for v in box)  # type: ignore[return-value]
 
 
 def available_skins() -> tuple[str, ...]:

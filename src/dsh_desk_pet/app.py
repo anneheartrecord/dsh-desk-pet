@@ -1,18 +1,19 @@
-"""The desktop window: a borderless, transparent, always-on-top companion.
+"""The desktop pet: an AppKit window driven by the shared state machine.
 
 Deliberately not an in-page widget. The point of this plugin is a pet that sits
 *over* the DSH tab and every other window, the way the Codex pet and
 claw-on-desk do, which a `<div>` in the page can never do.
 
-Two constraints shape everything below:
+This file owns the loop and nothing else. `observer` decides what DSH is doing,
+`runtime` decides what the pet should therefore be, `packs` and `anim` decide
+which frame that means right now, `nswindow` puts it on screen, and `bridge`
+tells the in-page mirror. Each of those is testable without a display; this is
+the only part that needs one.
 
-* macOS ships Tk 8.5. `PhotoImage` reads GIF and nothing else — no PNG, no
-  alpha channel, only a transparent palette index. `scripts/build_frames.py`
-  exists to satisfy exactly that.
-* A window can only be mapped where there is a window server. Under a sandbox
-  or over SSH, `deiconify()` blocks forever inside C. So the window is built
-  withdrawn, every risky call is guarded, and `--probe` never maps anything —
-  that is what makes this file assertable in a headless test.
+The renderer is AppKit rather than Tk because macOS ships Tk 8.5.9 from 2010,
+and on macOS 26 its drawing path no longer reaches the screen — see
+`nswindow.py`. Moving to AppKit also let the desktop pet switch from the 1-bit
+GIF matte to the RGBA PNGs, which is why the edges are soft now.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import bridge, macwindow, packs, prefs as prefs_store
+from . import bridge, nswindow, packs, prefs as prefs_store
 from .anim import motion_for
 from .mapper import AgentActivity
 from .observer import observe_activity
@@ -38,13 +39,10 @@ POLL_MS = 600
 # Republish the state file at least this often even when nothing changed, so
 # the page can tell "sitting still" from "process died".
 HEARTBEAT_MS = 2000
-# How often to re-assert always-on-top. Aqua drops it on focus changes.
+# Re-assert level and Spaces periodically; a Space change can drop them.
 TOPMOST_MS = 4000
-# How often to ask the window server where the pointer is. The doze threshold
-# is 90s, so anything under a second is free precision bought at 30Hz.
+# How often to ask AppKit where the pointer is; the doze threshold is 90s.
 POINTER_MS = 400
-# Fallback plate colour if this Tk cannot do a transparent window.
-OPAQUE_BG = "#f4efe6"
 # Set DSH_PET_DEBUG=1 to trace the observe -> state loop on stderr.
 DEBUG = os.environ.get("DSH_PET_DEBUG") == "1"
 
@@ -54,7 +52,7 @@ def now_ms() -> int:
 
 
 class DeskPetApp:
-    """Tk companion. All state transitions go through PetRuntime, same as tests."""
+    """Owns the pet's loop. All state transitions go through PetRuntime."""
 
     def __init__(
         self,
@@ -62,16 +60,7 @@ class DeskPetApp:
         *,
         clock=now_ms,
         prefs: prefs_store.Prefs | None = None,
-        transparent: bool = False,
     ) -> None:
-        # Opaque by default, and that is a measured decision rather than a
-        # timid one. On the Tk 8.5.9 that ships with macOS, `-transparent`
-        # composites the *entire* window body to nothing — Tk reports the
-        # window mapped, viewable, on-screen, with the sprite on its canvas,
-        # and a screenshot shows bare desktop. A transparent cut-out is the
-        # nicer look; an invisible pet is not a pet. `--transparent` opts back
-        # in for builds where it works.
-        self.want_transparent = transparent
         self.prefs = (prefs or prefs_store.Prefs()).clamped()
         self.clock = clock
         # Seed from the same clock the app runs on. A runtime starting at t=0
@@ -81,38 +70,25 @@ class DeskPetApp:
         self.painted_skin = ""
         self.painted_state = ""
         self.painted_frame: Path | None = None
-        self.transparent = False
-        self.borderless = False
-        self.above_fullscreen = False
-        self._root = None
-        self._canvas = None
-        self._sprite_id = None
-        self._photo = None
-        self._cache: dict[Path, object] = {}
-        self._drag_origin: tuple[int, int] | None = None
-        self._dragged = False
-        self._pointer_dx: float | None = None
+        self.window: nswindow.PetWindow | None = None
+        self._running = False
         self._published: tuple[str, str] | None = None
         self._published_at_ms = -HEARTBEAT_MS
-        self._menu = None
-        self._latest_activity: AgentActivity | None = None
-        self._pointer_seen: tuple[int, int] | None = None
-        self._pointer_moved_ms = 0
-        self._pointer_checked_ms = -POINTER_MS
+        self._topmost_at_ms = -TOPMOST_MS
         self._drawn_frame: Path | None = None
-        self._drawn_at: tuple[int, int] | None = None
+        self._pointer_seen: tuple[float, float] | None = None
+        self._pointer_moved_ms = 0
+        self._pointer_checked_ms = -400
+        self._latest_activity: AgentActivity | None = None
         self._watcher: threading.Thread | None = None
         self._stop_watch = threading.Event()
         self.publish_state = True
         self.save_prefs = True
 
-    # ---------------------------------------------------------------- window
+    # ------------------------------------------------------------- geometry
 
     @property
     def sprite_side(self) -> int:
-        """Tk 8.5 can only scale a PhotoImage by whole factors, so 0.5 is the
-        one alternative size available without shipping a second art pack."""
-
         base = packs.frame_size()
         return base // 2 if self.prefs.scale < 0.75 else base
 
@@ -120,204 +96,52 @@ class DeskPetApp:
     def canvas_side(self) -> int:
         return self.sprite_side + MARGIN * 2
 
-    def _sprite_origin(self) -> tuple[float, float]:
-        """Top-left of the sprite as currently drawn, in canvas coordinates."""
-
-        if self._canvas is None or self._sprite_id is None:
-            half = self.sprite_side / 2
-            return self.canvas_side / 2 - half, self.canvas_side / 2 - half
-        cx, cy = self._canvas.coords(self._sprite_id)
-        return cx - self.sprite_side / 2, cy - self.sprite_side / 2
-
     def is_on_pet(self, x: float, y: float) -> bool:
-        """Is this canvas point actually on the character, or on empty air?
+        """Is this window point on the character, or on empty air?
 
-        Tk cannot make a window ignore clicks per pixel, so the window is always
-        a rectangle and always swallows what is under it. It can at least stop
-        *itself* from reacting: dragging the pet by a corner of empty space felt
-        like dragging an invisible box, which is exactly what it was.
+        Answered from the skin's subject box, recorded at build time. AppKit
+        asks this before delivering a click, so `False` lets the click reach
+        whatever is behind the pet — the window stops being an invisible
+        rectangle that swallows everything landing on it.
         """
 
-        photo = self._photo
-        if photo is None:
+        box = packs.subject_box(self.runtime.skin_id)
+        if box is None:
             return True
-        ox, oy = self._sprite_origin()
-        px, py = int(x - ox), int(y - oy)
-        if not (0 <= px < self.sprite_side and 0 <= py < self.sprite_side):
-            return False
-        try:
-            return not bool(photo.transparency_get(px, py))
-        except Exception:
-            # Older Tk, or a photo without a transparency table: assume a hit
-            # rather than making the pet unclickable.
-            return True
+        scale = self.sprite_side / max(1, packs.frame_size())
+        x0, y0, x1, y1 = (v * scale + MARGIN for v in box)
+        return x0 <= x <= x1 and y0 <= y <= y1
 
-    def _try(self, fn, *args, **kwargs) -> bool:
-        """Run an optional Tk call; report whether this build supports it."""
+    # ------------------------------------------------------------ behaviour
 
-        import tkinter as tk
+    def select_skin(self, skin_id: str) -> str:
+        """Picker entry. Changing skin must never change state."""
 
-        try:
-            fn(*args, **kwargs)
-            return True
-        except tk.TclError:
-            return False
-
-    def _drop_chrome(self, root) -> bool:
-        """Remove the title bar the way macOS Tk actually supports.
-
-        `overrideredirect(True)` is the portable answer and the wrong one here:
-        measured on this machine, a window with it set never renders at all,
-        and combined with `-transparent` neither does its title bar. Aqua's own
-        route is `::tk::unsupported::MacWindowStyle`, which asks AppKit for a
-        chrome-less window class rather than telling the window manager to look
-        away — the difference between a window Aqua knows how to draw and one
-        it does not.
-
-        Returns whether the chrome actually came off, so the caller can decide
-        whether it is safe to also go transparent.
-        """
-
-        for style in (("help", "none"), ("plain", "none"), ("utility", "none")):
-            try:
-                root.tk.call("::tk::unsupported::MacWindowStyle", "style", root._w, *style)
-                return True
-            except Exception:
-                continue
-        # Portable fallback for non-Aqua Tk, where overrideredirect is the only
-        # option and does behave.
-        return self._try(root.overrideredirect, True)
-
-    def _build(self, *, mapped: bool = True) -> None:
-        import tkinter as tk
-
-        os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
-        root = tk.Tk()
-        # Withdraw only when we are never going to show this window. Building
-        # the widget tree inside a withdrawn root and mapping it afterwards left
-        # the canvas unmapped on macOS Tk 8.5 — the window appeared, at the
-        # right size, showing the default system background and none of its
-        # contents. The probe still withdraws, because mapping is the one call
-        # that blocks without a window server.
-        if not mapped:
-            root.withdraw()
-        root.title("DSH Desk Pet")
-
-        side = self.canvas_side
-        # Primary display origin. Never winfo_screenwidth(): on a multi-monitor
-        # Mac that is the union of every display, which parks the pet off-screen.
-        x = self.prefs.x if self.prefs.x is not None else 120
-        y = self.prefs.y if self.prefs.y is not None else 160
-        root.geometry(f"{side}x{side}+{x}+{y}")
-        root.resizable(False, False)
-
-        # Recorded rather than read back: MacWindowStyle leaves no attribute to
-        # query, and `overrideredirect()` now answers for a mechanism we no
-        # longer use.
-        # Chrome comes off either way: a borderless opaque window is a small
-        # tile of the plate colour, which reads as a pet on a card. A *titled*
-        # window is a dialog box with an animal in it.
-        borderless = self.borderless = self._drop_chrome(root)
-        # Order matters: on Aqua, dropping the chrome clears -topmost, so it has
-        # to be (re)set afterwards or the pet quietly sinks behind the browser.
-        self._try(root.attributes, "-topmost", True)
-        self.transparent = (
-            self.want_transparent
-            and borderless
-            and self._try(root.wm_attributes, "-transparent", True)
-            and self._try(root.configure, bg="systemTransparent")
-        )
-        bg = "systemTransparent" if self.transparent else OPAQUE_BG
-        if not self.transparent:
-            self._try(root.configure, bg=OPAQUE_BG)
-
-        canvas = tk.Canvas(root, width=side, height=side, highlightthickness=0, bd=0, takefocus=1)
-        if not self._try(canvas.configure, bg=bg):
-            self._try(canvas.configure, bg=OPAQUE_BG)
-        canvas.pack(fill="both", expand=True)
-
-        canvas.bind("<ButtonPress-1>", self._on_press)
-        canvas.bind("<B1-Motion>", self._on_drag)
-        canvas.bind("<ButtonRelease-1>", self._on_release)
-        canvas.bind("<Motion>", self._on_pointer)
-        canvas.bind("<Leave>", lambda _e: setattr(self, "_pointer_dx", None))
-        canvas.bind("<Button-2>", self._on_menu)
-        canvas.bind("<Button-3>", self._on_menu)
-        canvas.bind("<Control-Button-1>", self._on_menu)
-
-        root.bind("<Escape>", lambda _e: self.quit())
-        root.bind("<q>", lambda _e: self.quit())
-        # Number keys only go to 9; past that the right-click menu is the way in.
-        for index, skin in enumerate(list_skins()[:9], start=1):
-            root.bind(str(index), lambda _e, skin_id=skin.id: self.select_skin(skin_id))
-
-        self._root = root
-        self._canvas = canvas
-        self._menu = self._build_menu(root)
+        state = self.runtime.set_skin(skin_id)
+        self.prefs.skin_id = skin_id
+        self._save_prefs()
+        self._drawn_frame = None  # force a repaint even mid-hold
         self.render(self.clock())
+        return state
 
-        if mapped:
-            # Never withdrawn, so there is nothing to deiconify; just raise it.
-            root.lift()
-            # Mapping the window clears -topmost on Aqua, so setting it before
-            # deiconify (as the probe measures it) is not enough: measured on a
-            # real display, the attribute reads back 0 once the window is up.
-            # Re-assert immediately, then keep re-asserting, because focus
-            # changes clear it again.
-            self._topmost_tick()
-
-    def _build_menu(self, root):
-        import tkinter as tk
-
-        menu = tk.Menu(root, tearoff=0)
-        for skin in list_skins():
-            menu.add_command(
-                label=f"{skin.name_zh} · {skin.name}",
-                command=lambda skin_id=skin.id: self.select_skin(skin_id),
-            )
-        menu.add_separator()
-        menu.add_command(label="退出 Quit", command=self.quit)
-        return menu
-
-    def _on_menu(self, event) -> None:
-        if self._menu is None:
-            return
+    def next_skin(self) -> str:
+        skins = [skin.id for skin in list_skins()]
         try:
-            self._menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            self._menu.grab_release()
+            index = skins.index(self.runtime.skin_id)
+        except ValueError:
+            index = -1
+        return self.select_skin(skins[(index + 1) % len(skins)])
 
-    # ------------------------------------------------------------ interaction
+    def apply_activity(self, activity: AgentActivity | None) -> str:
+        state = self.runtime.apply_activity(activity, self.clock())
+        self.render(self.clock())
+        return state
 
-    def _on_press(self, event) -> None:
-        if self._root is None or not self.is_on_pet(event.x, event.y):
-            return
-        self._dragged = False
-        self._drag_origin = (event.x_root - self._root.winfo_x(), event.y_root - self._root.winfo_y())
+    def _on_click(self) -> None:
+        self.runtime.poke(self.clock())
 
-    def _on_drag(self, event) -> None:
-        if self._root is None or self._drag_origin is None:
-            return
-        self._dragged = True
-        x = event.x_root - self._drag_origin[0]
-        y = event.y_root - self._drag_origin[1]
-        self._root.geometry(f"+{x}+{y}")
-
-    def _on_release(self, _event) -> None:
-        if self._drag_origin is None:
-            return  # press landed on empty air; nothing was started
-        # A click that never moved is a poke, not a drag.
-        if not self._dragged:
-            self.runtime.poke(self.clock())
-        else:
-            self._remember_position()
-        self._drag_origin = None
-
-    def _remember_position(self) -> None:
-        if self._root is None:
-            return
-        self.prefs.x = self._root.winfo_x()
-        self.prefs.y = self._root.winfo_y()
+    def _on_moved(self, x: int, y: int) -> None:
+        self.prefs.x, self.prefs.y = int(x), int(y)
         self._save_prefs()
 
     def _save_prefs(self) -> None:
@@ -327,180 +151,86 @@ class DeskPetApp:
             # A read-only home is not worth killing the pet over; stop retrying.
             self.save_prefs = False
 
-    def _on_pointer(self, event) -> None:
-        self._pointer_dx = event.x - self.canvas_side / 2
-
-    # ---------------------------------------------------------------- drawing
-
-    def select_skin(self, skin_id: str) -> str:
-        """Picker entry. Changing skin must never change state."""
-
-        state = self.runtime.set_skin(skin_id)
-        self.prefs.skin_id = skin_id
-        self._save_prefs()
-        self.render(self.clock())
-        return state
-
-    def apply_activity(self, activity: AgentActivity | None) -> str:
-        state = self.runtime.apply_activity(activity, self.clock())
-        self.render(self.clock())
-        return state
-
     def _publish(self, at_ms: int) -> None:
         """Mirror skin/state to disk for the in-page overlay.
 
-        Writes on change, and otherwise on a heartbeat: the page decides whether
-        the desktop pet is alive by how fresh this file is, so a pet that sat in
-        one state for a minute must not look like a pet that died a minute ago.
+        On change, and otherwise on a heartbeat: the page decides whether the
+        desktop pet is alive by how fresh this file is, so a pet that sat in one
+        state for a minute must not look like a pet that died a minute ago.
         """
 
         if not self.publish_state:
             return
         current = (self.painted_skin, self.painted_state)
-        due = at_ms - self._published_at_ms >= HEARTBEAT_MS
-        if current == self._published and not due:
+        if current == self._published and at_ms - self._published_at_ms < HEARTBEAT_MS:
             return
         try:
             bridge.publish(self.painted_skin, self.painted_state, epoch_ms=at_ms)
         except OSError:
-            # A read-only or full home must not take the window down with it.
             self.publish_state = False
             return
         self._published = current
         self._published_at_ms = at_ms
 
-    def _photo_for(self, path: Path):
-        import tkinter as tk
-
-        cached = self._cache.get(path)
-        if cached is None:
-            # Bound to *our* root, not Tk's implicit default. Without master a
-            # second app in the same process builds its images against the first
-            # one's interpreter, and the canvas then reports the image does not
-            # exist.
-            cached = tk.PhotoImage(file=str(path), master=self._root)
-            if self.sprite_side != packs.frame_size():
-                # subsample is nearest-neighbour and integer-only, but it is the
-                # only resize Tk 8.5 offers without a second art pack.
-                factor = max(1, round(packs.frame_size() / self.sprite_side))
-                cached = cached.subsample(factor, factor)
-            self._cache[path] = cached
-        return cached
+    # -------------------------------------------------------------- drawing
 
     def render(self, at_ms: int) -> None:
-        """Blit the frame this instant calls for, at the offset motion calls for."""
+        """Show the frame this instant calls for, at the offset motion calls for."""
 
         self.painted_skin = self.runtime.skin_id
         self.painted_state = self.runtime.state
         self._publish(at_ms)
-        loop = packs.loop_for(self.runtime.skin_id, self.runtime.state)
+
+        loop = packs.loop_for(self.runtime.skin_id, self.runtime.state, web=True)
         frame = loop.frame_at(self.runtime.state_elapsed_ms(at_ms))
         self.painted_frame = frame
-        if self._canvas is None or frame is None:
+        if self.window is None or frame is None:
             return
-
-        motion = motion_for(
-            # The *requested* state, not the resolved one. When a state has no
-            # art yet it borrows idle's frames, and borrowing idle's breath too
-            # would leave nothing at all to tell them apart.
-            self.runtime.state,
-            self.runtime.state_elapsed_ms(at_ms),
-            pointer_dx=self._pointer_dx,
-            half_width=self.canvas_side / 2,
-            hop_until_ms=self.runtime.hop_until_ms,
-            now_ms=at_ms,
-        )
-        centre = self.canvas_side / 2
-        x, y = centre + motion.dx, centre + motion.dy
-
-        # Quantise, then skip the no-op. The breath is a slow sine, so at 30Hz a
-        # run of consecutive frames rounds to the same pixel — telling Tk to
-        # move the sprite to where it already is costs a canvas update each
-        # time and moves nothing.
-        x, y = round(x), round(y)
-        photo = self._photo_for(frame)
-        self._photo = photo
-        if self._sprite_id is None:
-            self._sprite_id = self._canvas.create_image(x, y, image=photo)
-        else:
-            if frame != self._drawn_frame:
-                self._canvas.itemconfigure(self._sprite_id, image=photo)
-            if (x, y) != self._drawn_at:
-                self._canvas.coords(self._sprite_id, x, y)
-        self._drawn_frame = frame
-        self._drawn_at = (x, y)
-
-    # ------------------------------------------------------------------ loops
-
-    def _topmost_tick(self) -> None:
-        """Keep re-asserting always-on-top, and stay above fullscreen Spaces.
-
-        Aqua quietly drops the level whenever another application takes focus,
-        so a single assert at startup leaves the pet sinking behind the browser
-        the first time you click it. The reference desk pet runs the same
-        watchdog for the same reason.
-
-        Tk's `-topmost` alone only reaches ordinary windows. `macwindow` raises
-        the NSWindow to the assistive-technology level and lets it join every
-        Space, which is what puts the pet over a fullscreen video or editor. It
-        has to be re-applied here rather than once at startup: the collection
-        behaviour survives, but the level does not always survive a Space
-        change. If it is unavailable the call is a no-op and we keep plain
-        always-on-top.
-        """
-
-        if self._root is None:
-            return
-        try:
-            self._try(self._root.attributes, "-topmost", True)
-            self.above_fullscreen = macwindow.float_above_fullscreen() > 0
-        except Exception:
-            pass  # see _poll_tick: never let one bad tick end the loop
-        self._root.after(TOPMOST_MS, self._topmost_tick)
+        if frame != self._drawn_frame:
+            self.window.set_image(frame)
+            self._drawn_frame = frame
 
     def _user_idle_ms(self, at_ms: int) -> int | None:
         """How long the pointer has sat still, anywhere on screen.
 
-        `winfo_pointerxy` reports the global pointer, not just pointer events
-        over our own window, which is what makes this a usable proxy for "is
-        anyone at this desk" rather than "is anyone hovering the pet".
+        Dozing needs both clocks: an agent with nothing to do is not the same
+        thing as a desk with nobody at it, and only the second should put the
+        pet to sleep. Sampled rather than read every frame — the threshold is
+        ninety seconds, so sub-second precision buys nothing.
         """
 
-        if self._root is None:
+        if self.window is None:
             return None
-        # Sampled, not read every frame. `winfo_pointerxy` is a round trip to
-        # the window server, and at 30Hz that is the single most expensive
-        # thing the render loop does — to answer a question whose threshold is
-        # ninety seconds.
-        if at_ms - self._pointer_checked_ms >= POINTER_MS:
-            self._pointer_checked_ms = at_ms
-            try:
-                position = self._root.winfo_pointerxy()
-            except Exception:
-                return None
-            if position != self._pointer_seen:
-                self._pointer_seen = position
-                self._pointer_moved_ms = at_ms
+        if at_ms - self._pointer_checked_ms < POINTER_MS:
+            return at_ms - self._pointer_moved_ms
+        self._pointer_checked_ms = at_ms
+        position = self.window.pointer()
+        if position is None:
+            return None
+        if position != self._pointer_seen:
+            self._pointer_seen = position
+            self._pointer_moved_ms = at_ms
         return at_ms - self._pointer_moved_ms
 
-    def _frame_tick(self) -> None:
-        if self._root is None:
-            return
-        try:
-            at = self.clock()
-            self.runtime.tick(at, self._user_idle_ms(at))
-            self.render(at)
-        except Exception:
-            pass  # see _poll_tick: never let one bad tick end the loop
-        self._root.after(FRAME_MS, self._frame_tick)
+    def _motion(self, at_ms: int):
+        # The *requested* state, not the resolved one. A state with no art yet
+        # borrows idle's frames, and borrowing idle's breath too would leave
+        # nothing at all to tell them apart.
+        return motion_for(
+            self.runtime.state,
+            self.runtime.state_elapsed_ms(at_ms),
+            half_width=self.canvas_side / 2,
+            hop_until_ms=self.runtime.hop_until_ms,
+            now_ms=at_ms,
+        )
+
+    # ----------------------------------------------------------------- loops
 
     def _start_watcher(self) -> None:
         """Observe DSH on a background thread, not on the one drawing frames.
 
-        `observe_activity` shells out to `ps` with a two-second timeout, walks
-        the whole sessions tree and reads the newest session file. Doing that
-        inline every 600ms stalls a 33ms render loop for as long as it takes,
-        which shows up as the pet freezing mid-blink whenever DSH is busy.
+        `observe_activity` can walk the sessions tree and shell out to `ps`.
+        Doing that inline would stall the frame loop for as long as it takes.
         """
 
         def loop() -> None:
@@ -514,45 +244,16 @@ class DeskPetApp:
                 self._stop_watch.wait(POLL_MS / 1000)
 
         if self._watcher is not None:
-            return  # already watching; a second thread would just duplicate work
+            return
         self._watcher = threading.Thread(target=loop, name="dsh-desk-pet-observer", daemon=True)
         self._watcher.start()
 
-    def _poll_tick(self) -> None:
-        if self._root is None:
-            return
-        try:
-            activity = self._latest_activity
-            if DEBUG:
-                print(
-                    f"[poll] observed={activity} state={self.runtime.state}",
-                    file=sys.stderr, flush=True,
-                )
-            if activity is not None:
-                self.runtime.apply_activity(activity, self.clock())
-        except Exception:
-            # Reschedule regardless. A Tk `after` callback that raises is never
-            # queued again, so one transient error would stop the pet reacting
-            # to DSH for the rest of the session while the render loop kept
-            # running — a pet that looks alive and has stopped listening.
-            pass
-        self._root.after(POLL_MS, self._poll_tick)
-
-    def always_on_top(self) -> bool:
-        if self._root is None:
-            return False
-        try:
-            return bool(int(self._root.attributes("-topmost")))
-        except Exception:
-            return False
-
     def quit(self) -> None:
-        if self._root is not None:
-            root, self._root = self._root, None
-            try:
-                root.destroy()
-            except Exception:
-                pass
+        self._running = False
+        self._stop_watch.set()
+        if self.window is not None:
+            self.window.close()
+            self.window = None
         if self.publish_state:
             # Otherwise the page overlay keeps animating a pet that is gone.
             try:
@@ -560,51 +261,73 @@ class DeskPetApp:
             except OSError:
                 pass
 
+    def build(self) -> None:
+        side = self.canvas_side
+        x = self.prefs.x if self.prefs.x is not None else 120
+        y = self.prefs.y if self.prefs.y is not None else 160
+        self.window = nswindow.PetWindow(
+            side, side, x=x, y=y,
+            on_click=self._on_click,
+            on_moved=self._on_moved,
+            on_menu=self.next_skin,
+            hit_test=self.is_on_pet,
+        )
+        self.render(self.clock())
+
     def run(self) -> int:
-        self._build(mapped=True)
-        assert self._root is not None
+        self.build()
         self._start_watcher()
-        self._root.after(FRAME_MS, self._frame_tick)
-        self._root.after(POLL_MS, self._poll_tick)
+        self._running = True
+        last_poll = 0
         try:
-            self._root.mainloop()
+            while self._running:
+                at = self.clock()
+                try:
+                    self.runtime.tick(at, self._user_idle_ms(at))
+                    if at - last_poll >= POLL_MS:
+                        last_poll = at
+                        activity = self._latest_activity
+                        if DEBUG:
+                            print(f"[poll] observed={activity} state={self.runtime.state}",
+                                  file=sys.stderr, flush=True)
+                        if activity is not None:
+                            self.runtime.apply_activity(activity, at)
+                    if at - self._topmost_at_ms >= TOPMOST_MS and self.window is not None:
+                        self._topmost_at_ms = at
+                        self.window.float_above_fullscreen()
+                    self.render(at)
+                except Exception as exc:
+                    # One bad frame must never end the loop. The pet going
+                    # still while the process lives is the worst failure mode:
+                    # it looks alive and has stopped listening.
+                    if DEBUG:
+                        print(f"[tick] {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+                if self.window is None:
+                    break
+                self.window.pump(FRAME_MS / 1000)
+        except KeyboardInterrupt:
+            pass
         finally:
-            self._stop_watch.set()
             self.quit()
         return 0
 
     # ------------------------------------------------------------------ probe
 
     def probe(self, probe_skin: str = "threadcore") -> int:
-        """Build the window without mapping it and report what it would paint.
+        """Report what the pet would paint, without opening a window.
 
-        Never calls `deiconify`: mapping is the one Tk operation that blocks
-        forever when there is no window server, and this has to stay runnable
-        in CI and under a sandbox.
-
-        Runs read-only. A diagnostic that switches skin to prove switching works
-        must not leave that skin persisted — running `--probe` used to rewrite
-        the user's saved skin and size, so their next real launch came up as a
-        half-size threadcore for no visible reason, and `quit()` deleted the
-        live pet's state file on the way out.
+        Everything here is renderer-independent, which is what keeps it
+        runnable in CI and under a sandbox.
         """
 
-        self.publish_state = False
-        self.save_prefs = False
-        self._build(mapped=False)
-        assert self._root is not None
         base = self.clock()
-
-        print(f"BORDERLESS={1 if self.borderless else 0}")
-        print(f"TRANSPARENT={1 if self.transparent else 0}")
-        print(f"ABOVE_FULLSCREEN={1 if macwindow.available() else 0}")
-        print(f"ALWAYS_ON_TOP={1 if self.always_on_top() else 0}")
+        self.render(base)
         print(f"WINDOW={self.canvas_side}x{self.canvas_side}")
+        print(f"RENDERER={'appkit' if nswindow.available() else 'unavailable'}")
         print(f"DEFAULT_SKIN={self.painted_skin}")
         print(f"STATE={self.painted_state}")
         print(f"FRAME={self.painted_frame.name if self.painted_frame else 'none'}")
 
-        # Sample one idle cycle: a live pet must not paint the same frame forever.
         seen = set()
         for offset in range(0, 3200, 80):
             self.render(base + offset)
@@ -617,7 +340,7 @@ class DeskPetApp:
         print(f"SKIN_AFTER={self.painted_skin}")
         print(f"STATE_UNCHANGED={1 if after == before else 0}")
 
-        inventory = packs.pack_inventory()
+        inventory = packs.pack_inventory(web=True)
         missing = [
             f"{skin}/{state}"
             for skin, states in inventory.items()
@@ -627,53 +350,27 @@ class DeskPetApp:
         print(f"PACK_SKINS={len(inventory)}")
         print(f"MISSING_CORE_PACKS={','.join(missing) if missing else 'none'}")
 
-        ok = (
-            self.painted_skin == probe_skin
-            and self.always_on_top()
-            and len(seen) >= 2
-            and not missing
-        )
-        self.quit()
+        ok = self.painted_skin == probe_skin and len(seen) >= 2 and not missing
         return 0 if ok else 1
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Always-on-top DSH desktop pet")
-    parser.add_argument("--probe", action="store_true", help="build without mapping, print diagnostics, exit")
+    parser.add_argument("--probe", action="store_true", help="print diagnostics without a window")
     parser.add_argument("--probe-skin", default="threadcore", help="skin the probe switches to")
     parser.add_argument("--skin", help="starting skin id (overrides the saved one)")
     parser.add_argument("--state", default="idle", help="starting state")
     parser.add_argument("--small", action="store_true", help="draw at half size")
-    parser.add_argument(
-        "--transparent",
-        action="store_true",
-        help="cut-out window with no plate; invisible on stock macOS Tk 8.5",
-    )
     parser.add_argument("--reset", action="store_true", help="forget saved position, size and skin")
     parser.add_argument("--inventory", action="store_true", help="print the frame inventory and exit")
-    parser.add_argument(
-        "--allow-second",
-        action="store_true",
-        help="start even if another pet is already running",
-    )
+    parser.add_argument("--allow-second", action="store_true", help="start even if a pet is running")
     args = parser.parse_args(argv)
 
     if args.inventory:
-        for skin, states in packs.pack_inventory().items():
+        for skin, states in packs.pack_inventory(web=True).items():
             counts = " ".join(f"{state}={count}" for state, count in states.items())
             print(f"{skin:12s} {counts}")
         return 0
-
-    if not args.probe and not args.allow_second:
-        running = bridge.live_pid()
-        if running is not None:
-            # Every DSH profile launches the plugin, so a second profile would
-            # otherwise put a second pet on screen, both writing the same state
-            # file and the page showing whichever wrote last.
-            # Non-zero: the plugin logs a non-zero exit, and "did not start" is
-            # exactly what the user needs to be told.
-            print(f"a desk pet is already running (pid {running}); use --allow-second to override")
-            return 3
 
     saved = prefs_store.Prefs() if args.reset else prefs_store.load()
     if args.skin:
@@ -683,13 +380,24 @@ def main(argv: list[str] | None = None) -> int:
         saved.scale = 0.5
     saved = saved.clamped()
 
-    # Seed the runtime with the same clock the app uses. Left at 0, the first
-    # tick would read `state_elapsed_ms` as the whole monotonic clock — which on
-    # platforms where that is boot-relative sails straight past SLEEP_AFTER_MS
-    # and the pet launches already asleep.
     runtime = PetRuntime(skin_id=saved.skin_id, state=args.state, now_ms=now_ms())  # type: ignore[arg-type]
-    app = DeskPetApp(runtime, prefs=saved, transparent=args.transparent)
-    return app.probe(args.probe_skin) if args.probe else app.run()
+    app = DeskPetApp(runtime, prefs=saved)
+
+    if args.probe:
+        app.publish_state = False
+        app.save_prefs = False
+        return app.probe(args.probe_skin)
+
+    if not args.allow_second:
+        running = bridge.live_pid()
+        if running is not None:
+            # Every DSH profile launches the plugin, so a second profile would
+            # otherwise put a second pet on screen, both writing the same state
+            # file and the page showing whichever wrote last.
+            print(f"a desk pet is already running (pid {running}); use --allow-second to override")
+            return 3
+
+    return app.run()
 
 
 if __name__ == "__main__":

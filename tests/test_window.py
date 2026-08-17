@@ -1,66 +1,47 @@
-"""Drive the real Tk window, unmapped.
+"""The app loop, exercised without opening a window.
 
-Not a stub. Under a sandbox or over SSH the only Tk call that blocks is mapping
-the window (`deiconify`), so building it withdrawn exercises the genuine
-article — including Tk 8.5's GIF decoder, which is the whole reason the art
-pipeline emits GIF. A fake Tk would happily "load" a PNG and prove nothing.
+`DeskPetApp` deliberately does no drawing of its own: it decides *what* to show
+and hands a path to `nswindow`. That split is what lets almost all of it be
+asserted here, on a machine with no display — and it is why the renderer could
+be swapped from Tk to AppKit without any of the state machine changing.
 """
 
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
+from dsh_desk_pet import nswindow, packs
 from dsh_desk_pet.app import DeskPetApp
 from dsh_desk_pet.mapper import AgentActivity
 from dsh_desk_pet.runtime import PetRuntime
 
-try:  # A machine with no Tk at all should skip, not fail.
-    import tkinter
 
-    tkinter.Tk().destroy()
-    HAVE_TK = True
-except Exception:  # pragma: no cover - depends on the host
-    HAVE_TK = False
+def _app(clock_ref):
+    app = DeskPetApp(PetRuntime(), clock=lambda: clock_ref[0])
+    # Keep the suite out of the real ~/.dsh-desk-pet; both files are covered
+    # against a temp home in test_bridge and test_prefs.
+    app.publish_state = False
+    app.save_prefs = False
+    return app
 
 
-@unittest.skipUnless(HAVE_TK, "no usable Tk on this host")
-class WindowTests(unittest.TestCase):
+class PaintingTests(unittest.TestCase):
     def setUp(self) -> None:
         self.ticks = [0]
-        self.app = DeskPetApp(PetRuntime(), clock=lambda: self.ticks[0])
-        # Keep the suite out of the real ~/.dsh-desk-pet; both files are covered
-        # against a temp home in test_bridge and test_prefs.
-        self.app.publish_state = False
-        self.app.save_prefs = False
-        self.app._build(mapped=False)
-        self.addCleanup(self.app.quit)
-
-    def test_window_is_borderless_and_topmost(self) -> None:
-        self.assertTrue(self.app.borderless, "pet still has window chrome")
-        self.assertTrue(self.app.always_on_top(), "pet will sink behind the browser")
-
-    def test_transparency_is_off_unless_asked_for(self) -> None:
-        """Stock macOS Tk composites a transparent window body to nothing, so
-        the default has to be the one that is actually visible."""
-
-        self.assertFalse(self.app.transparent)
-
-    def test_transparency_can_be_opted_into(self) -> None:
-        app = DeskPetApp(PetRuntime(), transparent=True)
-        app.publish_state = False
-        app.save_prefs = False
-        self.addCleanup(app.quit)
-        app._build(mapped=False)
-        self.assertTrue(app.transparent, "--transparent did not take")
+        self.app = _app(self.ticks)
+        self.app.render(0)
 
     def test_default_is_whale_idle(self) -> None:
         self.assertEqual(self.app.painted_skin, "whale")
         self.assertEqual(self.app.painted_state, "idle")
 
-    def test_paints_a_generated_frame_not_a_drawing(self) -> None:
+    def test_paints_rgba_frames_now_that_appkit_can_composite_them(self) -> None:
+        """Tk 8.5 could only read GIF, which capped the pet at a 1-bit matte."""
+
         self.assertIsNotNone(self.app.painted_frame)
-        self.assertEqual(self.app.painted_frame.suffix, ".gif")
-        self.assertIn("assets", str(self.app.painted_frame))
+        self.assertEqual(self.app.painted_frame.suffix, ".png")
+        self.assertIn("assets/web", str(self.app.painted_frame))
 
     def test_idle_paints_more_than_one_frame_over_a_cycle(self) -> None:
         seen = set()
@@ -86,62 +67,77 @@ class WindowTests(unittest.TestCase):
             painted[state] = self.app.painted_frame
         self.assertEqual(len(set(painted.values())), len(painted), f"states share art: {painted}")
 
-    def test_sprite_moves_between_ticks(self) -> None:
-        """Breath is what keeps a one-frame state from looking like a screenshot."""
+    def test_next_skin_cycles_and_returns(self) -> None:
+        first = self.app.runtime.skin_id
+        seen = {first}
+        for _ in range(len(packs.available_skins())):
+            self.app.next_skin()
+            seen.add(self.app.runtime.skin_id)
+        self.assertEqual(self.app.runtime.skin_id, first, "cycle did not come back around")
+        self.assertGreater(len(seen), 1)
 
-        self.app.apply_activity(AgentActivity(kind="running"))
-        positions = set()
-        for t in range(0, 1200, 60):
-            self.ticks[0] = t
-            self.app.render(t)
-            positions.add(tuple(self.app._canvas.coords(self.app._sprite_id)))
-        self.assertGreater(len(positions), 3, "the sprite never moves")
+    def test_motion_moves_the_pet_between_ticks(self) -> None:
+        """Breath is what keeps a held frame from looking like a screenshot."""
 
-    def test_photo_cache_reuses_images(self) -> None:
-        for t in range(0, 4000, 25):
-            self.app.render(t)
-        self.assertLessEqual(len(self.app._cache), 8, "leaking a PhotoImage per frame")
+        offsets = {(round(self.app._motion(t).dx, 2), round(self.app._motion(t).dy, 2))
+                   for t in range(0, 1200, 60)}
+        self.assertGreater(len(offsets), 3, "the pet never moves")
 
-    def test_centre_of_the_frame_is_on_the_pet(self) -> None:
+
+class HitTestTests(unittest.TestCase):
+    """Per-pixel-ish click-through: the window must not eat the whole desktop
+    rectangle it covers."""
+
+    def setUp(self) -> None:
+        self.app = _app([0])
+
+    def test_centre_is_on_the_pet(self) -> None:
         centre = self.app.canvas_side / 2
         self.assertTrue(self.app.is_on_pet(centre, centre))
 
-    def test_corners_are_not_on_the_pet(self) -> None:
-        """Otherwise the window is an invisible box you can drag by its corner."""
-
-        for x, y in ((1, 1), (self.app.canvas_side - 2, 1), (1, self.app.canvas_side - 2)):
+    def test_corners_fall_through(self) -> None:
+        for x, y in ((1, 1), (self.app.canvas_side - 1, 1), (1, self.app.canvas_side - 1)):
             self.assertFalse(self.app.is_on_pet(x, y), f"({x},{y}) counted as the pet")
 
-    def test_press_on_empty_air_starts_no_drag(self) -> None:
-        class _Event:
-            x = y = 2
-            x_root = y_root = 0
-
-        self.app._on_press(_Event())
-        self.assertIsNone(self.app._drag_origin)
-
-    def test_press_on_the_pet_starts_a_drag(self) -> None:
-        class _Event:
-            x = y = 0
-            x_root = y_root = 0
-
-        _Event.x = _Event.y = int(self.app.canvas_side / 2)
-        self.app._on_press(_Event())
-        self.assertIsNotNone(self.app._drag_origin)
-
-    def test_quit_is_idempotent(self) -> None:
-        self.app.quit()
-        self.app.quit()
-        self.assertIsNone(self.app._root)
+    def test_every_skin_has_a_subject_box(self) -> None:
+        for skin in packs.available_skins():
+            self.assertIsNotNone(packs.subject_box(skin), f"{skin} has no subject box")
 
 
-@unittest.skipUnless(HAVE_TK, "no usable Tk on this host")
 class ProbeTests(unittest.TestCase):
-    def test_probe_succeeds_without_mapping_a_window(self) -> None:
-        app = DeskPetApp(PetRuntime())
-        app.publish_state = False
-        app.save_prefs = False
+    def test_probe_needs_no_display(self) -> None:
+        app = _app([0])
         self.assertEqual(app.probe("threadcore"), 0)
+
+
+@unittest.skipUnless(nswindow.available(), "AppKit unavailable on this host")
+class RendererTests(unittest.TestCase):
+    def test_the_renderer_is_reachable_through_ctypes(self) -> None:
+        """No PyObjC, no Homebrew Python — the plugin installs with nothing."""
+
+        self.assertTrue(nswindow.available())
+
+    def test_window_geometry_round_trips_through_appkit_coordinates(self) -> None:
+        """AppKit's origin is bottom-left and everything else here is top-left;
+        that conversion lives in one place and is easy to get backwards."""
+
+        window = nswindow.PetWindow(120, 120, x=300, y=250)
+        try:
+            self.assertEqual(window.position(), (300, 250))
+            window.move_to(410, 360)
+            self.assertEqual(window.position(), (410, 360))
+        finally:
+            window.close()
+
+    def test_window_shows_a_frame_without_raising(self) -> None:
+        frame = packs.loop_for("whale", "idle", web=True).frame_at(0)
+        self.assertIsInstance(frame, Path)
+        window = nswindow.PetWindow(120, 120, x=200, y=200)
+        try:
+            window.set_image(frame)
+            window.pump(0.05)
+        finally:
+            window.close()
 
 
 if __name__ == "__main__":
