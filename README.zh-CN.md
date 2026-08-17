@@ -33,18 +33,18 @@
 已有 DSH，一条命令：
 
 ```bash
-dsh plugin --profile web add dsh-desk-pet
+dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
 dsh web
 ```
 
 宠物会浮在桌面上，盖在你正在用的任何窗口之上。DSH 页面本身不会被塞任何东西。
 
-不要 DSH、只开宠物：`npx dsh-desk-pet`。
+不要 DSH、只开宠物：克隆后执行 `./bin/dsh-desk-pet`。
 
-想跟 main 分支而不是已发布版本：
+还没发到 npm。发布之后下面这种短写法才可用，上面那个徽章也才不会显示 not found：
 
 ```bash
-dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
+dsh plugin --profile web add dsh-desk-pet   # 首次 npm 发布之后
 ```
 
 **零依赖。** 跑在系统自带的 `/usr/bin/python3` 上，靠 `ctypes` 直接调 AppKit。不装任何东西，也不用编译。

@@ -34,19 +34,20 @@
 With DSH already set up, one command:
 
 ```bash
-dsh plugin --profile web add dsh-desk-pet
+dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
 dsh web
 ```
 
 The pet appears on your desktop, floating above whatever you are working in.
 Nothing is added to the DSH page itself.
 
-Pet only, no DSH: `npx dsh-desk-pet`.
+Pet only, no DSH: clone the repo and run `./bin/dsh-desk-pet`.
 
-To follow the main branch instead of the published version:
+Not on npm yet. Once it is published, the shorter form works and the badge above
+stops reading "not found":
 
 ```bash
-dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
+dsh plugin --profile web add dsh-desk-pet   # after the first npm release
 ```
 
 **No dependencies.** It runs on the system `/usr/bin/python3` and talks to
