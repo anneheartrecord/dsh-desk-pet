@@ -1,21 +1,90 @@
 #!/usr/bin/env /usr/bin/python3
-"""Launch the always-on-top DSH desktop pet (macOS system Python for Tk)."""
+"""Launch the DSH desktop pet.
+
+Detaches by default. A desk pet that dies with the terminal you started it from
+is not a desk pet, it is a foreground program that happens to be shaped like
+one — and leaving a window open just to keep it alive is exactly the friction
+this is meant to remove.
+
+    ./bin/dsh-desk-pet              # start in the background and return
+    ./bin/dsh-desk-pet --stop       # stop the running pet
+    ./bin/dsh-desk-pet --foreground # stay attached (logs to this terminal)
+    ./bin/dsh-desk-pet --probe      # diagnostics, no window
+
+Everything else is passed through to `dsh_desk_pet.app`.
+"""
 
 from __future__ import annotations
 
 import os
+import signal
 import sys
 from pathlib import Path
-
-os.environ.setdefault("NSRequiresAquaSystemAppearance", "1")
-os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from dsh_desk_pet.app import main
+from dsh_desk_pet import bridge  # noqa: E402
+from dsh_desk_pet.app import main  # noqa: E402
+
+LOG = Path.home() / ".dsh-desk-pet" / "pet.log"
+
+
+def stop() -> int:
+    pid = bridge.live_pid()
+    if pid is None:
+        print("no desk pet is running")
+        return 0
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError as exc:
+        print(f"could not stop pid {pid}: {exc}")
+        return 1
+    print(f"stopped desk pet (pid {pid})")
+    return 0
+
+
+def detach() -> None:
+    """Double-fork into the background, with output going to a log file.
+
+    Double, not single: the first fork lets the shell reap its child
+    immediately, and `setsid` in between detaches from the controlling
+    terminal so closing the window cannot take the pet with it.
+    """
+
+    if os.fork() > 0:
+        os._exit(0)
+    os.setsid()
+    if os.fork() > 0:
+        os._exit(0)
+
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    with open(os.devnull, "rb") as devnull:
+        os.dup2(devnull.fileno(), sys.stdin.fileno())
+    # Truncate rather than append: the interesting log is always the last run's.
+    with open(LOG, "wb") as log:
+        os.dup2(log.fileno(), sys.stdout.fileno())
+        os.dup2(log.fileno(), sys.stderr.fileno())
+
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    argv = sys.argv[1:]
+    if "--stop" in argv:
+        raise SystemExit(stop())
+
+    foreground = "--foreground" in argv
+    argv = [arg for arg in argv if arg != "--foreground"]
+    # Diagnostics print to the terminal and exit; detaching would hide them.
+    inspects = any(arg in ("--probe", "--inventory", "-h", "--help") for arg in argv)
+
+    if not foreground and not inspects:
+        if bridge.live_pid() is not None:
+            # Say so from the foreground; after detaching nobody would see it.
+            print(f"a desk pet is already running (pid {bridge.live_pid()})")
+            raise SystemExit(3)
+        print(f"desk pet started in the background; log: {LOG}")
+        detach()
+
+    raise SystemExit(main(argv))

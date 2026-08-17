@@ -108,9 +108,9 @@ class PetWindow:
     * ``on_click()``   — pressed and released without moving
     * ``on_moved(x,y)``— finished a drag, in screen coordinates
     * ``on_menu()``    — right-clicked (or control-clicked)
-    * ``hit_test(x,y)``— is this point on the character? Coordinates are
-      top-left origin, so they match how the frames were authored. Returning
-      False makes the click fall through to whatever is behind the window.
+    * ``hit_test(x,y)``— is this point on the character? Accepted and stored,
+      but not wired to AppKit yet: see `_make_view_class` on why overriding
+      `hitTest:` was backed out.
     """
 
     def __init__(
@@ -155,6 +155,14 @@ class PetWindow:
             ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
             NSRect, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_bool,
         )(rt._addr)
+        self._date_after = ctypes.CFUNCTYPE(
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_double
+        )(rt._addr)
+        self._next_event = ctypes.CFUNCTYPE(
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+            ctypes.c_ulong, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool,
+        )(rt._addr)
+        self._launched = False
 
         app = self._ptr(rt.cls("NSApplication"), rt.sel("sharedApplication"))
         # Accessory: no Dock icon, no menu bar. It is a pet, not an app.
@@ -212,66 +220,69 @@ class PetWindow:
         handlers, and `movableByWindowBackground` is not enough: an
         `NSImageView` swallows the press without moving anything, which is how
         the first prototype ended up visible but undraggable.
+
+        Dragging goes through `performWindowDragWithEvent:` rather than adding up
+        `deltaX`/`deltaY` by hand. AppKit's own implementation runs its own event
+        loop until the mouse comes up, and gets the things hand-rolled dragging
+        gets wrong: multiple displays, Spaces, and the tracking staying attached
+        when the pointer outruns the redraw. Because it only returns once the
+        drag is over, comparing the window's position across the call is also
+        the cleanest way to tell a drag from a click.
+
+        `hitTest:` is deliberately *not* overridden. Getting its struct
+        argument's type encoding wrong on arm64 does not fail loudly — it
+        delivers garbage coordinates, the view claims no points at all, and the
+        pet becomes completely inert while still looking perfect. Click-through
+        is worth having, but not at the cost of the pet responding to nothing.
         """
 
         rt = self.rt
         name = f"DshPetView{id(self)}".encode()
         view_class = rt.objc.objc_allocateClassPair(rt.cls("NSView"), name, 0)
+        drag_with_event = rt.sig(None, ctypes.c_void_p)
 
         def _down(_self, _cmd, event):
-            self._pressed = True
-            self._moved = False
-
-        def _dragged(_self, _cmd, event):
-            self._pressed = True
-            self._moved = True
-            dx = self._double(event, rt.sel("deltaX"))
-            dy = self._double(event, rt.sel("deltaY"))
-            frame = self._rect(self._window, rt.sel("frame"))
-            # deltaY grows downward in event space and upward in screen space.
-            self._void_point(self._window, rt.sel("setFrameOrigin:"),
-                             NSPoint(frame.x + dx, frame.y - dy))
-
-        def _up(_self, _cmd, event):
-            was_drag, self._pressed = self._moved, False
-            if was_drag:
-                if self.on_moved:
-                    x, y = self.position()
-                    self.on_moved(x, y)
-            elif self.on_click:
-                self.on_click()
+            try:
+                before = self.position()
+                drag_with_event(self._window, rt.sel("performWindowDragWithEvent:"), event)
+                after = self.position()
+                if before != after:
+                    if self.on_moved:
+                        self.on_moved(*after)
+                elif self.on_click:
+                    self.on_click()
+            except Exception:
+                # A raise inside an Objective-C callback unwinds into AppKit,
+                # which has no idea what to do with it. Swallow and stay alive.
+                pass
 
         def _right(_self, _cmd, event):
-            if self.on_menu:
-                self.on_menu()
+            try:
+                if self.on_menu:
+                    self.on_menu()
+            except Exception:
+                pass
 
-        def _hit(_self, _cmd, point: NSPoint):
-            """Per-pixel click-through: the one thing Tk could not do at all.
+        def _accepts_first_mouse(_self, _cmd, _event):
+            """Yes — and without this the pet cannot be clicked at all.
 
-            AppKit asks the view which point it wants; answering nil for a
-            transparent pixel lets the click reach the desktop behind the pet,
-            so the window stops being an invisible rectangle that eats clicks.
+            The app is an accessory (no Dock icon, never activated), so every
+            click on its window is a "first mouse". AppKit's default is to
+            consume that click to activate the application and deliver nothing,
+            and since this app never becomes active, *every* click is the first
+            one. The pet looked perfect and ignored the mouse completely.
             """
 
-            if self.hit_test is None:
-                return self._view
-            local = point
-            try:
-                # Convert screen-ish window coords to top-left view coords.
-                if self.hit_test(local.x, self.height - local.y):
-                    return self._view
-            except Exception:
-                return self._view
-            return None
+            return True
 
-        signatures = [
-            ("mouseDown:", _down, b"v@:@", ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)),
-            ("mouseDragged:", _dragged, b"v@:@", ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)),
-            ("mouseUp:", _up, b"v@:@", ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)),
-            ("rightMouseDown:", _right, b"v@:@", ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)),
-            ("hitTest:", _hit, b"@@:{CGPoint=dd}", ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, NSPoint)),
-        ]
-        for selector, fn, types, proto in signatures:
+        void_id = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+        bool_id = ctypes.CFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+        methods = (
+            ("mouseDown:", _down, b"v@:@", void_id),
+            ("rightMouseDown:", _right, b"v@:@", void_id),
+            ("acceptsFirstMouse:", _accepts_first_mouse, b"B@:@", bool_id),
+        )
+        for selector, fn, types, proto in methods:
             imp = proto(fn)
             _KEEP.append(imp)
             rt.objc.class_addMethod(view_class, rt.sel(selector), ctypes.cast(imp, ctypes.c_void_p), types)
@@ -321,21 +332,43 @@ class PetWindow:
                          CAN_JOIN_ALL_SPACES | STATIONARY | FULLSCREEN_AUXILIARY)
 
     def pump(self, seconds: float) -> None:
-        """Let AppKit deliver events for a while. This is the frame tick."""
+        """Deliver AppKit events for a while. This is the frame tick.
+
+        Through `NSApplication`, not `NSRunLoop`. Running the run loop alone
+        services its sources — which is enough for Core Animation, so the pet
+        *drew* perfectly — but NSEvents are dispatched to windows by
+        `nextEventMatchingMask:` and `sendEvent:`, and without those the mouse
+        is never delivered to anything. That is why the pet looked finished and
+        could not be dragged or clicked.
+        """
 
         if self._closed:
             time.sleep(seconds)
             return
         rt = self.rt
-        loop = self._ptr(rt.cls("NSRunLoop"), rt.sel("currentRunLoop"))
-        date_after = ctypes.CFUNCTYPE(
-            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_double
-        )(rt._addr)
-        run_until = ctypes.CFUNCTYPE(
-            ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p
-        )(rt._addr)
-        until = date_after(rt.cls("NSDate"), rt.sel("dateWithTimeIntervalSinceNow:"), seconds)
-        run_until(loop, rt.sel("runMode:beforeDate:"), self._nsstring("kCFRunLoopDefaultMode"), until)
+        if not self._launched:
+            # Required before manually pumping: it finishes the parts of
+            # startup that -[NSApplication run] would otherwise do.
+            self._void_ptr(self._app, rt.sel("finishLaunching"), None)
+            self._launched = True
+
+        until = self._date_after(
+            rt.cls("NSDate"), rt.sel("dateWithTimeIntervalSinceNow:"), seconds
+        )
+        event = self._next_event(
+            self._app, rt.sel("nextEventMatchingMask:untilDate:inMode:dequeue:"),
+            ctypes.c_ulong(0xFFFFFFFFFFFFFFFF), until,
+            self._nsstring("kCFRunLoopDefaultMode"), True,
+        )
+        while event:
+            self._ptr_ptr(self._app, rt.sel("sendEvent:"), event)
+            # Drain anything else already queued, without waiting for more.
+            now = self._date_after(rt.cls("NSDate"), rt.sel("dateWithTimeIntervalSinceNow:"), 0.0)
+            event = self._next_event(
+                self._app, rt.sel("nextEventMatchingMask:untilDate:inMode:dequeue:"),
+                ctypes.c_ulong(0xFFFFFFFFFFFFFFFF), now,
+                self._nsstring("kCFRunLoopDefaultMode"), True,
+            )
 
     def pointer(self) -> tuple[float, float] | None:
         """Global pointer position, or None if AppKit will not say.

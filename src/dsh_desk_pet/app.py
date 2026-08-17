@@ -89,8 +89,14 @@ class DeskPetApp:
 
     @property
     def sprite_side(self) -> int:
-        base = packs.frame_size()
-        return base // 2 if self.prefs.scale < 0.75 else base
+        """Any scale, not just halves.
+
+        Tk could only zoom a PhotoImage by whole factors, which is why this used
+        to be a choice between full size and half. AppKit resamples smoothly, so
+        the size is now a plain multiplier.
+        """
+
+        return max(48, round(packs.frame_size() * self.prefs.scale))
 
     @property
     def canvas_side(self) -> int:
@@ -360,7 +366,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--probe-skin", default="threadcore", help="skin the probe switches to")
     parser.add_argument("--skin", help="starting skin id (overrides the saved one)")
     parser.add_argument("--state", default="idle", help="starting state")
-    parser.add_argument("--small", action="store_true", help="draw at half size")
+    parser.add_argument("--scale", type=float, help="size multiplier, e.g. 0.7")
+    parser.add_argument("--small", action="store_true", help="shorthand for --scale 0.5")
     parser.add_argument("--reset", action="store_true", help="forget saved position, size and skin")
     parser.add_argument("--inventory", action="store_true", help="print the frame inventory and exit")
     parser.add_argument("--allow-second", action="store_true", help="start even if a pet is running")
@@ -378,6 +385,8 @@ def main(argv: list[str] | None = None) -> int:
         saved.skin_id = args.skin
     if args.small:
         saved.scale = 0.5
+    if args.scale:
+        saved.scale = args.scale
     saved = saved.clamped()
 
     runtime = PetRuntime(skin_id=saved.skin_id, state=args.state, now_ms=now_ms())  # type: ignore[arg-type]

@@ -61,8 +61,16 @@ class ClampTests(unittest.TestCase):
         self.assertEqual(Prefs(scale=99).clamped().scale, MAX_SCALE)
         self.assertEqual(Prefs(scale=0.01).clamped().scale, MIN_SCALE)
 
-    def test_garbage_scale_becomes_one(self) -> None:
-        self.assertEqual(Prefs(scale="huge").clamped().scale, 1.0)  # type: ignore[arg-type]
+    def test_garbage_scale_falls_back_to_the_default(self) -> None:
+        from dsh_desk_pet.prefs import DEFAULT_SCALE
+
+        self.assertEqual(Prefs(scale="huge").clamped().scale, DEFAULT_SCALE)  # type: ignore[arg-type]
+
+    def test_scale_is_continuous_now_that_appkit_resamples(self) -> None:
+        """Tk could only zoom by whole factors, so size used to be full or half."""
+
+        self.assertEqual(Prefs(scale=0.7).clamped().scale, 0.7)
+        self.assertEqual(Prefs(scale=1.35).clamped().scale, 1.35)
 
     def test_negative_coordinates_are_kept(self) -> None:
         """A display to the left of the primary has them; they are not errors."""

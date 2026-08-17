@@ -24,8 +24,11 @@ from .skins import DEFAULT_SKIN_ID, is_known_skin
 PREFS_DIRNAME = ".dsh-desk-pet"
 PREFS_FILENAME = "prefs.json"
 
-MIN_SCALE = 0.5
+MIN_SCALE = 0.3
 MAX_SCALE = 2.0
+# The pet at frame size is too big to live on a desktop; 0.7 reads as a
+# companion rather than a poster.
+DEFAULT_SCALE = 0.7
 # Beyond this a saved position is not "on another display", it is lost.
 OFFSCREEN_LIMIT = 20_000
 
@@ -35,7 +38,7 @@ class Prefs:
     skin_id: str = DEFAULT_SKIN_ID
     x: int | None = None
     y: int | None = None
-    scale: float = 1.0
+    scale: float = DEFAULT_SCALE
 
     def clamped(self) -> "Prefs":
         """Repair anything a hand-edited or stale file could get wrong."""
@@ -44,7 +47,7 @@ class Prefs:
         try:
             scale = float(self.scale)
         except (TypeError, ValueError):
-            scale = 1.0
+            scale = DEFAULT_SCALE
         scale = max(MIN_SCALE, min(MAX_SCALE, scale))
         x = self.x if isinstance(self.x, int) else None
         y = self.y if isinstance(self.y, int) else None
