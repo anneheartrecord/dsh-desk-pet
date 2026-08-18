@@ -104,6 +104,34 @@ class HitTestTests(unittest.TestCase):
             self.assertIsNotNone(packs.subject_box(skin), f"{skin} has no subject box")
 
 
+class ClickUnderDoNotDisturbTests(unittest.TestCase):
+    """The one do-not-disturb guarantee that does not live in the state machine.
+
+    `_on_click` pokes the runtime and then opens the panel. The runtime latch
+    stops the poke waking the pet, but nothing stops the panel opening — and it
+    should not: the mode quiets the pet, it does not make it unresponsive. That
+    holds by construction today, so this is a forward guard rather than a test
+    that was ever red. It exists because the menu units edit exactly this
+    handler, and an early return under do-not-disturb would otherwise be
+    invisible to the suite.
+    """
+
+    def test_click_still_opens_the_panel_and_does_not_wake(self) -> None:
+        clock = [0]
+        app = _app(clock)
+        opened = []
+        app.toggle_panel = lambda: opened.append(True)  # type: ignore[method-assign]
+
+        app.runtime.set_do_not_disturb(True, now_ms=clock[0])
+        clock[0] = 1000
+        app._on_click()
+
+        self.assertEqual(len(opened), 1, "the panel must still respond under do-not-disturb")
+        self.assertEqual(app.runtime.state, "sleeping", "the click must not wake the pet")
+        self.assertTrue(app.runtime.do_not_disturb, "the click must not clear the mode")
+        self.assertGreater(app.runtime.hop_until_ms, clock[0], "the bounce should still be queued")
+
+
 class PanelContentTests(unittest.TestCase):
     """What the click-panel says, asserted without opening one."""
 

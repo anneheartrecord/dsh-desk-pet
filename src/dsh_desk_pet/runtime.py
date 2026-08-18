@@ -7,6 +7,9 @@ the pet feel like it has a mood of its own lives here instead:
   to idle on a timer rather than sticking as a sixth resting state.
 * `sleeping` is reached by *nothing happening*, which no activity label can
   express. Long idle dozes off; any activity or any poke wakes it.
+* `do_not_disturb` looks the same on screen and behaves the opposite way: the
+  user asked for quiet, so no observation, timer or poke may take it away. Only
+  the user gives it back. It is not persisted.
 * A poke (click) queues a hop the renderer draws on top of the current loop.
 
 The clock is always passed in. Nothing here calls `time.time()`, so a test can
@@ -37,6 +40,7 @@ class PetRuntime:
         self._state: PetState = state
         self._state_since_ms = now_ms
         self._hop_until_ms = 0
+        self._do_not_disturb = False
 
     @property
     def skin_id(self) -> str:
@@ -49,6 +53,36 @@ class PetRuntime:
     @property
     def hop_until_ms(self) -> int:
         return self._hop_until_ms
+
+    @property
+    def do_not_disturb(self) -> bool:
+        return self._do_not_disturb
+
+    def set_do_not_disturb(self, on: bool, now_ms: int) -> PetState:
+        """Turn the user's quiet mode on or off.
+
+        Deliberately not persisted. It is a mode you choose for the next few
+        minutes, and a pet that came back silent after a restart would read as
+        a hung process rather than a setting.
+
+        Turning it on shows the sleeping pose, so it looks like what it is.
+
+        Turning it off wakes the pet to idle and re-arms the doze timer. Leaving
+        the pose alone would be defensible — the next observation would resume
+        it — but an idle observation refuses to lift `sleeping`, and `tick` has
+        no exit from it, so a pet whose agent had nothing to do would stay
+        visibly asleep with the menu item now reading unchecked. That is the one
+        confusion this mode is most likely to cause, since it looks identical to
+        the natural doze.
+        """
+
+        was_on = self._do_not_disturb
+        self._do_not_disturb = bool(on)
+        if self._do_not_disturb:
+            return self._enter("sleeping", now_ms)
+        if was_on:
+            return self._enter("idle", now_ms)
+        return self._state
 
     def state_elapsed_ms(self, now_ms: int) -> int:
         """Time in the current state — this is what drives the frame timeline."""
@@ -64,6 +98,10 @@ class PetRuntime:
     def apply_activity(self, activity: AgentActivity | None, now_ms: int = 0) -> PetState:
         """Take an observation. Idle observations never disturb a live nap."""
 
+        if self._do_not_disturb:
+            # The whole point of the mode: the agent keeps working and the
+            # observer keeps reporting, but none of it reaches the screen.
+            return self._state
         observed = map_activity(activity)
         if observed == "idle" and self._state in ("sleeping", "happy"):
             # Let the timers in `tick` own these two; a stream of idle polls
@@ -81,6 +119,8 @@ class PetRuntime:
         clock decides alone.
         """
 
+        if self._do_not_disturb:
+            return self._state
         elapsed = self.state_elapsed_ms(now_ms)
         if self._state == "happy" and elapsed >= HAPPY_MS:
             return self._enter("idle", now_ms)
@@ -90,9 +130,16 @@ class PetRuntime:
         return self._state
 
     def poke(self, now_ms: int) -> PetState:
-        """User touched the pet: wake it up and queue a bounce."""
+        """User touched the pet: wake it up and queue a bounce.
+
+        Under do-not-disturb the bounce still happens but the waking does not.
+        Petting a sleeping pet should feel alive, and it should not quietly
+        cancel a mode the user set from the menu — only the menu gives it back.
+        """
 
         self._hop_until_ms = now_ms + HOP_MS
+        if self._do_not_disturb:
+            return self._state
         if self._state == "sleeping":
             return self._enter("idle", now_ms)
         return self._state
