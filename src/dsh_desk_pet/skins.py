@@ -20,6 +20,16 @@ from pathlib import Path
 # dead Tk path used — so a hand-added skin was invisible, and once the GIFs
 # stopped shipping there was nothing to find at all.
 FRAME_ROOT = Path(__file__).resolve().parents[2] / "assets" / "web"
+# Where a skin the user made lives. Deliberately outside the package: the
+# installed copy sits in node_modules and is replaced wholesale on upgrade, so
+# a skin written there would not survive one. Prefs and state already live in
+# this directory.
+USER_ROOT_NAME = ".dsh-desk-pet"
+
+
+def user_frame_root(home: Path | None = None) -> Path:
+    base = home if home is not None else Path.home()
+    return base / USER_ROOT_NAME / "skins"
 # Kept for the manifest's sake; not what decides whether a skin exists.
 SKIN_ROOT = Path(__file__).resolve().parents[2] / "assets" / "skins"
 
@@ -51,20 +61,29 @@ def _title(skin_id: str) -> str:
     return skin_id.replace("-", " ").replace("_", " ").strip().title() or skin_id
 
 
-def _discovered() -> tuple[Skin, ...]:
-    """Skin folders on disk that are not part of the shipped set."""
+def _discovered(home: Path | None = None) -> tuple[Skin, ...]:
+    """Skin folders on disk that are not part of the shipped set.
 
-    if not FRAME_ROOT.is_dir():
-        return ()
+    Two roots are searched: the package's own tree, for a skin dropped in by a
+    developer, and the user directory, where anything generated is installed. A
+    builtin id is never shadowed, so a stray folder cannot replace a shipped
+    skin.
+    """
+
     found = []
-    for entry in sorted(FRAME_ROOT.iterdir()):
-        if not entry.is_dir() or entry.name in _BUILTIN_BY_ID or entry.name.startswith("."):
+    seen = set(_BUILTIN_BY_ID)
+    for root in (FRAME_ROOT, user_frame_root(home)):
+        if not root.is_dir():
             continue
-        # A folder with no frames is a half-finished import, not a skin.
-        if not any(entry.glob("*/*.png")):
-            continue
-        name = _title(entry.name)
-        found.append(Skin(id=entry.name, name=name, name_zh=name, builtin=False))
+        for entry in sorted(root.iterdir()):
+            if not entry.is_dir() or entry.name in seen or entry.name.startswith("."):
+                continue
+            # A folder with no frames is a half-finished import, not a skin.
+            if not any(entry.glob("*/*.png")):
+                continue
+            seen.add(entry.name)
+            name = _title(entry.name)
+            found.append(Skin(id=entry.name, name=name, name_zh=name, builtin=False))
     return tuple(found)
 
 

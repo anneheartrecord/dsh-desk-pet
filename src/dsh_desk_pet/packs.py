@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from . import skins
 from .anim import Timeline, auto_timeline
 
 ASSET_ROOT = Path(__file__).resolve().parents[2] / "assets"
@@ -66,6 +67,18 @@ class FrameLoop:
         return self.frames[self.timeline.frame_at(elapsed_ms) % len(self.frames)]
 
 
+def _user_manifest(skin_id: str) -> dict:
+    """A user-made skin carries its own manifest; the shipped one is packaged."""
+
+    path = skins.user_frame_root() / skin_id / "manifest.json"
+    if not path.is_file():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 @lru_cache(maxsize=1)
 def manifest() -> dict:
     if not MANIFEST_PATH.is_file():
@@ -85,9 +98,26 @@ def _frames_in(directory: Path, suffix: str) -> tuple[Path, ...]:
     )
 
 
-def frames_for(skin_id: str, state: str, *, web: bool = False) -> tuple[Path, ...]:
+def skin_dir(skin_id: str, *, web: bool = False) -> Path:
+    """Where this skin's frames live.
+
+    A user-made skin is installed outside the package, because the installed
+    copy sits in node_modules and is replaced wholesale on upgrade. The package
+    tree wins, so a stray user folder cannot shadow a shipped skin.
+    """
+
     root = WEB_ROOT if web else SKIN_ROOT
-    return _frames_in(root / skin_id / state, ".png" if web else ".gif")
+    shipped = root / skin_id
+    if shipped.is_dir():
+        return shipped
+    user = skins.user_frame_root() / skin_id
+    if web and user.is_dir():
+        return user
+    return shipped
+
+
+def frames_for(skin_id: str, state: str, *, web: bool = False) -> tuple[Path, ...]:
+    return _frames_in(skin_dir(skin_id, web=web) / state, ".png" if web else ".gif")
 
 
 def resolve_state(skin_id: str, state: str, *, web: bool = False) -> tuple[str, tuple[Path, ...]]:
@@ -107,11 +137,16 @@ def resolve_state(skin_id: str, state: str, *, web: bool = False) -> tuple[str, 
 def _declared_timeline(skin_id: str, state: str) -> Timeline | None:
     """Honour a hand-tuned `timeline` in the manifest over the generated one."""
 
-    entry = manifest().get("skins", {}).get(skin_id, {})
-    raw = (entry.get("timelines") or {}).get(state)
+    raw = (_skin_manifest(skin_id).get("timelines") or {}).get(state)
     if not raw:
         return None
-    steps = tuple((int(index), int(ms)) for index, ms in raw)
+    try:
+        steps = tuple((int(index), int(ms)) for index, ms in raw)
+    except (TypeError, ValueError):
+        # A user-made skin's manifest is a file we did not write. A malformed
+        # timeline must fall back to the generated rhythm, not raise on the
+        # render path — an exception there unwinds into an ObjC callback.
+        return None
     return Timeline(steps) if steps else None
 
 
@@ -143,7 +178,11 @@ def loop_for(skin_id: str, state: str, *, web: bool = False) -> FrameLoop:
     """
 
     loop = _loop_cached(skin_id, state, web)
-    if not loop.frames and (SKIN_ROOT / skin_id).is_dir():
+    if not loop.frames and skin_dir(skin_id, web=web).is_dir():
+        # Checked against the tree the frames actually come from. This tested
+        # the GIF tree before, so a skin with PNG frames only — which is every
+        # skin a user installs — never satisfied it and kept its cached empty
+        # loop, freezing the sprite on its last frame.
         reset_cache()
         loop = _loop_cached(skin_id, state, web)
     return loop
@@ -171,6 +210,13 @@ def pack_inventory(*, web: bool = False) -> dict[str, dict[str, int]]:
     }
 
 
+def _skin_manifest(skin_id: str) -> dict:
+    entry = manifest().get("skins", {}).get(skin_id)
+    if entry:
+        return entry
+    return _user_manifest(skin_id)
+
+
 def subject_box(skin_id: str) -> tuple[int, int, int, int] | None:
     """Where the character sits inside its padded frame, in frame pixels.
 
@@ -179,10 +225,13 @@ def subject_box(skin_id: str) -> tuple[int, int, int, int] | None:
     swallowed by the window rectangle.
     """
 
-    box = manifest().get("skins", {}).get(skin_id, {}).get("subject_box")
+    box = _skin_manifest(skin_id).get("subject_box")
     if not box or len(box) != 4:
         return None
-    return tuple(int(v) for v in box)  # type: ignore[return-value]
+    try:
+        return tuple(int(v) for v in box)  # type: ignore[return-value]
+    except (TypeError, ValueError):
+        return None
 
 
 def available_skins() -> tuple[str, ...]:

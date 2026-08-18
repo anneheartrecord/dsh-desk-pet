@@ -75,7 +75,10 @@ class PaintingTests(unittest.TestCase):
     def test_next_skin_cycles_and_returns(self) -> None:
         first = self.app.runtime.skin_id
         seen = {first}
-        for _ in range(len(packs.available_skins())):
+        # Sized from the catalog `next_skin` actually walks, which now includes
+        # any skin the user installed — `available_skins` enumerates the shipped
+        # tree only, so it would come up short by exactly those.
+        for _ in range(len(list_skins())):
             self.app.next_skin()
             seen.add(self.app.runtime.skin_id)
         self.assertEqual(self.app.runtime.skin_id, first, "cycle did not come back around")
