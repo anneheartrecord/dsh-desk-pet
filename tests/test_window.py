@@ -8,6 +8,7 @@ be swapped from Tk to AppKit without any of the state machine changing.
 
 from __future__ import annotations
 
+import ctypes
 import os
 import signal
 import threading
@@ -490,6 +491,61 @@ class RendererTests(unittest.TestCase):
             )
         finally:
             panel.close()
+            pet.close()
+
+    def test_builds_a_real_menu_from_the_model(self) -> None:
+        """Built and inspected, never popped.
+
+        `popUpContextMenu:` runs a modal tracking loop that does not return
+        until the menu is dismissed, so a test that popped one would hang the
+        suite rather than fail. That the loop resumes afterwards is on the
+        hand-verified gate.
+        """
+
+        clock = [0]
+        app = _app(clock)
+        pet = nswindow.PetWindow(160, 160, x=300, y=300)
+        try:
+            model = app.menu_model()
+            menu = pet.build_menu(model)
+            rt = pet.rt
+            count = pet._long_msg(menu, rt.sel("numberOfItems"))
+            self.assertEqual(count, len(model))
+
+            item_at = rt.sig(ctypes.c_void_p, ctypes.c_long)
+            for index, entry in enumerate(model):
+                item = item_at(menu, rt.sel("itemAtIndex:"), index)
+                is_sep = pet.rt.sig(ctypes.c_bool)(item, rt.sel("isSeparatorItem"))
+                self.assertEqual(bool(is_sep), entry.kind == "separator",
+                                 f"entry {index} separator mismatch")
+                if entry.kind == "separator":
+                    continue
+                state = pet._long_msg(item, rt.sel("state"))
+                self.assertEqual(bool(state), entry.checked, f"entry {index} check state")
+                if entry.kind == "submenu":
+                    sub = pet._ptr(item, rt.sel("submenu"))
+                    self.assertTrue(sub, "submenu entry has no submenu attached")
+                    self.assertEqual(
+                        pet._long_msg(sub, rt.sel("numberOfItems")), len(entry.children))
+        finally:
+            pet.close()
+
+    def test_every_action_key_round_trips_through_its_tag(self) -> None:
+        """The tag is the only thing carried across the ObjC boundary."""
+
+        clock = [0]
+        app = _app(clock)
+        pet = nswindow.PetWindow(160, 160, x=300, y=300)
+        try:
+            model = app.menu_model()
+            pet._menu_actions.clear()
+            pet.build_menu(model)
+            expected = [e.action for e in model if e.kind == "item"]
+            expected += [c.action for e in model for c in e.children]
+            self.assertEqual(sorted(pet._menu_actions.values()), sorted(expected))
+            for action in pet._menu_actions.values():
+                self.assertTrue(app.can_handle_menu(action), f"unreachable action {action}")
+        finally:
             pet.close()
 
     def test_panel_redraw_does_not_leak_layers(self) -> None:

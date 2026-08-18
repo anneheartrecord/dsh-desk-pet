@@ -107,7 +107,8 @@ class PetWindow:
 
     * ``on_click()``   — pressed and released without moving
     * ``on_moved(x,y)``— finished a drag, in screen coordinates
-    * ``on_menu()``    — right-clicked (or control-clicked)
+    * ``on_menu()``    — right-clicked; returns the menu model to show
+    * ``on_menu_action(key)`` — an item in that menu was chosen
     * ``on_drag_start()`` — a drag just began; `dragging` stays True until it ends
     * ``hit_test(x,y)``— is this point on the character? Accepted and stored,
       but not wired to AppKit yet: see `_make_view_class` on why overriding
@@ -123,7 +124,8 @@ class PetWindow:
         y: int = 160,
         on_click: Callable[[], None] | None = None,
         on_moved: Callable[[int, int], None] | None = None,
-        on_menu: Callable[[], None] | None = None,
+        on_menu: Callable[[], object] | None = None,
+        on_menu_action: Callable[[str], None] | None = None,
         hit_test: Callable[[float, float], bool] | None = None,
         on_drag_start: Callable[[], None] | None = None,
     ) -> None:
@@ -135,6 +137,11 @@ class PetWindow:
         self.on_click = on_click
         self.on_moved = on_moved
         self.on_menu = on_menu
+        self.on_menu_action = on_menu_action
+        # Tag -> action key. Tags are scalars, so nothing here needs to keep an
+        # Objective-C object alive to survive the round trip.
+        self._menu_actions: dict[int, str] = {}
+        self.menu_open = False
         self.hit_test = hit_test
         self.on_drag_start = on_drag_start
         # True while AppKit's drag loop owns the mouse. `performWindowDragWithEvent:`
@@ -153,6 +160,8 @@ class PetWindow:
         self._void_bool = rt.sig(None, ctypes.c_bool)
         self._void_long = rt.sig(None, ctypes.c_long)
         self._void_ulong = rt.sig(None, ctypes.c_ulong)
+        # Reads an NSInteger back — the menu item's tag.
+        self._long_msg = rt.sig(ctypes.c_long)
         self._double = rt.sig(ctypes.c_double)
         self._rect = rt.sig(NSRect)
         self._void_point = rt.sig(None, NSPoint)
@@ -205,6 +214,64 @@ class PetWindow:
         self._ptr_ptr(self._layer, rt.sel("setContentsGravity:"), self._nsstring("resizeAspect"))
         self._ptr_ptr(window, rt.sel("setContentView:"), view)
         self._ptr_ptr(window, rt.sel("orderFront:"), None)
+
+    def build_menu(self, model) -> object:
+        """Turn menu entries into an NSMenu.
+
+        Split from the popup so a test can assert the built menu's shape.
+        Popping it cannot be tested: `popUpContextMenu:` runs a modal tracking
+        loop that does not return until the menu is dismissed, so a test that
+        popped one would hang the suite rather than fail.
+        """
+
+        rt = self.rt
+        menu = self._ptr(self._ptr(rt.cls("NSMenu"), rt.sel("alloc")), rt.sel("init"))
+        # AppKit would otherwise ask a target to validate each item, and this
+        # app is an accessory that never becomes active — every item would
+        # render disabled.
+        self._void_bool(menu, rt.sel("setAutoenablesItems:"), False)
+        _KEEP.append(menu)
+
+        for entry in model:
+            if entry.kind == "separator":
+                item = self._ptr(rt.cls("NSMenuItem"), rt.sel("separatorItem"))
+                self._void_ptr(menu, rt.sel("addItem:"), item)
+                continue
+
+            item = self._ptr(self._ptr(rt.cls("NSMenuItem"), rt.sel("alloc")), rt.sel("init"))
+            self._void_ptr(item, rt.sel("setTitle:"), self._nsstring(entry.title))
+            self._void_bool(item, rt.sel("setEnabled:"), bool(entry.enabled))
+            _KEEP.append(item)
+
+            if entry.kind == "submenu":
+                sub = self.build_menu(entry.children)
+                self._void_ptr(item, rt.sel("setSubmenu:"), sub)
+            else:
+                tag = len(self._menu_actions) + 1
+                self._menu_actions[tag] = entry.action
+                self._void_long(item, rt.sel("setTag:"), tag)
+                self._void_ptr(item, rt.sel("setTarget:"), self._view)
+                self._void_ptr(item, rt.sel("setAction:"), rt.sel("petMenuPick:"))
+                self._void_long(item, rt.sel("setState:"), 1 if entry.checked else 0)
+
+            self._void_ptr(menu, rt.sel("addItem:"), item)
+        return menu
+
+    def _popup_menu(self, model, event) -> None:
+        rt = self.rt
+        self._menu_actions.clear()
+        menu = self.build_menu(model)
+        self.menu_open = True
+        try:
+            # All-pointer selector on purpose. The positioning variant takes an
+            # NSPoint by value, and a wrong struct encoding on arm64 does not
+            # raise — it returns garbage, which is what made hitTest: silently
+            # inert and forced its removal.
+            popup = rt.sig(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+            popup(rt.cls("NSMenu"), rt.sel("popUpContextMenu:withEvent:forView:"),
+                  menu, event, self._view)
+        finally:
+            self.menu_open = False
 
     # ------------------------------------------------------------- internals
 
@@ -272,8 +339,28 @@ class PetWindow:
 
         def _right(_self, _cmd, event):
             try:
-                if self.on_menu:
-                    self.on_menu()
+                if not self.on_menu:
+                    return
+                model = self.on_menu()
+                if not model:
+                    return
+                self._popup_menu(model, event)
+            except Exception:
+                pass
+
+        def _menu_pick(_self, _cmd, sender):
+            """An item was chosen. The tag carries which one.
+
+            `setTag:` takes a scalar, so it needs no object lifetime management
+            and no struct encoding — the two things that have already cost this
+            file a working feature.
+            """
+
+            try:
+                tag = self._long_msg(sender, self.rt.sel("tag"))
+                action = self._menu_actions.get(int(tag))
+                if action and self.on_menu_action:
+                    self.on_menu_action(action)
             except Exception:
                 pass
 
@@ -294,6 +381,7 @@ class PetWindow:
         methods = (
             ("mouseDown:", _down, b"v@:@", void_id),
             ("rightMouseDown:", _right, b"v@:@", void_id),
+            ("petMenuPick:", _menu_pick, b"v@:@", void_id),
             ("acceptsFirstMouse:", _accepts_first_mouse, b"B@:@", bool_id),
         )
         for selector, fn, types, proto in methods:

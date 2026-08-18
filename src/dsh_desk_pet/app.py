@@ -538,7 +538,8 @@ class DeskPetApp:
             side, side, x=x, y=y,
             on_click=self._on_click,
             on_moved=self._on_moved,
-            on_menu=self.next_skin,
+            on_menu=self.menu_model,
+            on_menu_action=self.on_menu_action,
             hit_test=self.is_on_pet,
         )
         self.render(self.clock())
