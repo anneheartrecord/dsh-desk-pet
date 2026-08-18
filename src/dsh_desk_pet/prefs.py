@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from .skins import DEFAULT_SKIN_ID, is_known_skin
@@ -39,9 +39,22 @@ class Prefs:
     x: int | None = None
     y: int | None = None
     scale: float = DEFAULT_SCALE
+    # Both default off, which is exactly what the app does today: it sets the
+    # accessory activation policy, so it has neither a Dock icon nor a menu bar
+    # item. An existing user therefore sees nothing change on upgrade. The two
+    # are independent — there is deliberately no rule keeping one of them on,
+    # because right-clicking the pet always reaches the menu.
+    show_menu_bar: bool = False
+    show_dock: bool = False
 
     def clamped(self) -> "Prefs":
-        """Repair anything a hand-edited or stale file could get wrong."""
+        """Repair anything a hand-edited or stale file could get wrong.
+
+        Returns a copy via `replace` rather than rebuilding from a fixed list of
+        keyword arguments. The rebuild silently dropped every field it did not
+        name, and `save` writes the clamped copy, so a preference outside that
+        list could be set and would never persist.
+        """
 
         skin = self.skin_id if is_known_skin(self.skin_id) else DEFAULT_SKIN_ID
         try:
@@ -59,7 +72,18 @@ class Prefs:
             x = None
         if y is not None and not -OFFSCREEN_LIMIT <= y <= OFFSCREEN_LIMIT:
             y = None
-        return Prefs(skin_id=skin, x=x, y=y, scale=scale)
+        # `is True` rather than `bool(...)`: a hand-edited "yes" or 1 is not a
+        # boolean, and coercing it would put a truthy string on the render path
+        # instead of repairing the file.
+        return replace(
+            self,
+            skin_id=skin,
+            x=x,
+            y=y,
+            scale=scale,
+            show_menu_bar=self.show_menu_bar is True,
+            show_dock=self.show_dock is True,
+        )
 
 
 def prefs_path(home: Path | None = None) -> Path:
