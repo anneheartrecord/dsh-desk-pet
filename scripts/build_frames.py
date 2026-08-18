@@ -16,6 +16,13 @@ Two outputs per source frame, of which only one is still played:
 Cropping is decided once per skin, not per frame: a union bbox keeps every state
 on the same baseline so switching state does not make the pet jump or resize.
 
+The geometry, the keying constants and the PNG writer live in
+``src/dsh_desk_pet/imaging.py`` now, and this script imports them. ``scripts/``
+is not published, so a copy kept here would be out of reach of the installed
+package — which needs exactly those operations to install a user's own skin —
+and two copies of the coverage contract would drift from the gate that enforces
+it.
+
 Needs ffmpeg on PATH. Run after adding art:
 
     ./scripts/build_frames.py            # everything
@@ -38,13 +45,26 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from dsh_desk_pet.anim import auto_timeline  # noqa: E402  (needs the path above)
+from dsh_desk_pet.imaging import (  # noqa: E402
+    ALPHA_CUTOFF,
+    BASELINE_RATIO,
+    FRAME_SIZE,
+    PLATE_DISTANCE,
+    SIMILARITY,
+    SOURCE_PAD_RATIO,
+    TARGET_COVERAGE,
+    _despill_edges,
+    _hex_rgb,
+    _seal_interior,
+    _write_png_rgba,
+    square_crop,
+)
 
 SOURCE_ROOT = ROOT / "assets" / "source"
 SKIN_ROOT = ROOT / "assets" / "skins"
 WEB_ROOT = ROOT / "assets" / "web"
 MANIFEST = SKIN_ROOT / "manifest.json"
 
-FRAME_SIZE = 200
 # `colorkey`, not `chromakey`: chromakey matches on chroma alone and ignores
 # luma, so against a pastel plate it deletes the character's black eyes.
 #
@@ -58,34 +78,17 @@ FRAME_SIZE = 200
 #
 # Blend stays at 0: GIF alpha is 1-bit, so a soft key edge only quantises into
 # a fringe. `_despill_edges` cleans the edge afterwards instead.
-SIMILARITY = 0.24
 BLEND = 0.0
-ALPHA_CUTOFF = 160
 # Where the bottom of the body sits inside the square crop. Shared by every
 # skin so switching skin does not move the pet vertically.
-BASELINE_RATIO = 0.94
 # How much of the finished frame the character should cover. Every skin is
 # scaled to hit this, so switching skin does not change the pet's apparent size.
-TARGET_COVERAGE = 0.32
 # How much plate `build_frame` adds around a source before cropping. The crop
 # may use it, so `square_crop` must know the same number.
-SOURCE_PAD_RATIO = 0.3
 # Sum-of-channel distance under which an enclosed region counts as the plate
 # showing through rather than artwork the key removed.
-PLATE_DISTANCE = 150
 
 
-def _hex_rgb(value: str) -> tuple[int, int, int]:
-    # Strip the prefix, not a character set: `lstrip("0x")` eats every leading
-    # '0' and 'x', so "0x00E412" becomes "E412" and the parse silently shifts.
-    raw = value.strip()
-    if raw.startswith("#"):
-        raw = raw[1:]
-    elif raw[:2].lower() == "0x":
-        raw = raw[2:]
-    if len(raw) != 6:
-        raise ValueError(f"expected a 6-digit hex colour, got {value!r}")
-    return int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)
 
 STATES = ("idle", "working", "waiting", "error", "happy", "sleeping")
 
@@ -176,227 +179,12 @@ def alpha_bbox(path: Path, key: str) -> tuple[tuple[float, float, float, float] 
     return (cols[0] / w, rows[0] / h, (cols[-1] + 1) / w, (rows[-1] + 1) / h), coverage
 
 
-def square_crop(
-    union: tuple[float, float, float, float],
-    w: int,
-    h: int,
-    frame: tuple[float, float, float, float] | None = None,
-    pad_ratio: float = 0.06,
-    area_px: float = 0.0,
-) -> tuple[int, int, int, int]:
-    """Square crop for one frame: sized from the skin, positioned from the pose.
-
-    Two different jobs, deliberately fed by two different boxes.
-
-    *Size* comes from the skin's drawn area, not its bounding box, so every skin
-    reads as the same-sized animal. Sizing by the box made the DeepSeek whale
-    fill 52% of its frame against ~30% for the others: it is a round shape that
-    nearly fills its own box, where a whale with a raised tail leaves most of
-    its box empty. The eye reads ink, not extents. `area_px` is how much of the
-    source the character actually covers, and the crop is sized so that lands at
-    `TARGET_COVERAGE` of the output.
-
-    *Position* comes from this frame's own box, anchored so the bottom of the
-    body lands at `BASELINE_RATIO`. Anchoring on the union instead let each pose
-    sit wherever its own extent happened to fall — up to 25px apart within one
-    skin, so the pet visibly hopped whenever it changed state. Vertical movement
-    is the renderer's job (breath, hop); the art should hold still.
-    """
-
-    ux0, uy0, ux1, uy1 = union[0] * w, union[1] * h, union[2] * w, union[3] * h
-    box_w, box_h = ux1 - ux0, uy1 - uy0
-
-    if area_px:
-        # A crop of `side` shows `area_px` of ink; we want that to be
-        # TARGET_COVERAGE of the result, so side = sqrt(area / target).
-        side = math.sqrt(area_px / TARGET_COVERAGE)
-        # Never crop tighter than the subject itself, whatever the arithmetic
-        # says — a pose wider than the target would get its edges cut off.
-        side = max(side, box_w * (1 + pad_ratio), box_h * (1 + pad_ratio))
-    else:
-        side = max(box_w, box_h) * (1 + pad_ratio * 2)
-    # Deliberately not clamped to the source size. `build_frame` pads the source
-    # with plate colour first, so a crop wider than the original simply picks up
-    # background — and clamping here is what kept the DeepSeek whale oversized:
-    # its art is drawn large in its own frame, so hitting the target coverage
-    # needs a crop bigger than the source it came from.
-    side = int(round(min(side, (w + 2 * SOURCE_PAD_RATIO * min(w, h)))))
-
-    box = frame or union
-    fx0, fy1 = box[0] * w, box[3] * h
-    fx1 = box[2] * w
-    cx = (fx0 + fx1) / 2
-    # Deliberately unclamped. A pose sitting low in its source needs a crop that
-    # runs past the bottom edge, and clamping it back inside pushes the body up
-    # the frame instead — which is how the nautilus ended up 16px above every
-    # other skin. `build_frame` pads the source first so these offsets are
-    # always valid.
-    x = int(round(cx - side / 2))
-    y = int(round(fy1 - side * BASELINE_RATIO))
-    return x, y, side, side
 
 
-def _seal_interior(raw: bytearray, w: int, h: int, key: str) -> int:
-    """Restore transparency the key opened up *inside* the character.
-
-    Being unreachable from the border is necessary but not sufficient. A ball of
-    yarn with thirty loose strands encloses thirty loops of real background, and
-    sealing those is how `threadcore/error` came to ship sitting on a bright
-    green flower.
-
-    Colour settles it. `colorkey` only zeroes alpha and leaves RGB untouched, so
-    a region cut out of the artwork still holds the artwork's colours, while
-    genuine background still holds the plate's. Regions that look like the plate
-    stay transparent; regions that look like the character are restored — and
-    because their RGB survived the key, restoring alpha is all it takes to bring
-    them back correctly coloured.
-
-    Returns how many pixels were restored.
-    """
-
-    key_rgb = _hex_rgb(key)
-    reachable = bytearray(w * h)
-    queue: deque[int] = deque()
-
-    def push(i: int) -> None:
-        if not reachable[i] and raw[i * 4 + 3] < ALPHA_CUTOFF:
-            reachable[i] = 1
-            queue.append(i)
-
-    for x in range(w):
-        push(x)
-        push((h - 1) * w + x)
-    for y in range(h):
-        push(y * w)
-        push(y * w + w - 1)
-
-    while queue:
-        i = queue.popleft()
-        x, y = i % w, i // w
-        if x > 0:
-            push(i - 1)
-        if x < w - 1:
-            push(i + 1)
-        if y > 0:
-            push(i - w)
-        if y < h - 1:
-            push(i + w)
-
-    sealed = 0
-    seen = bytearray(w * h)
-    for start in range(w * h):
-        if reachable[start] or seen[start] or raw[start * 4 + 3] >= ALPHA_CUTOFF:
-            continue
-        # Collect one enclosed region, then judge it as a whole: a per-pixel
-        # test would leave a speckled halo of the few pixels that fell either
-        # side of the threshold.
-        region = []
-        seen[start] = 1
-        stack = [start]
-        total = [0, 0, 0]
-        while stack:
-            i = stack.pop()
-            region.append(i)
-            total[0] += raw[i * 4]
-            total[1] += raw[i * 4 + 1]
-            total[2] += raw[i * 4 + 2]
-            x, y = i % w, i // w
-            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
-                if 0 <= nx < w and 0 <= ny < h:
-                    j = ny * w + nx
-                    if not seen[j] and not reachable[j] and raw[j * 4 + 3] < ALPHA_CUTOFF:
-                        seen[j] = 1
-                        stack.append(j)
-
-        n = len(region)
-        mean = (total[0] / n, total[1] / n, total[2] / n)
-        if sum(abs(mean[c] - key_rgb[c]) for c in range(3)) < PLATE_DISTANCE:
-            continue  # genuinely background, just walled in by the artwork
-        for i in region:
-            raw[i * 4 + 3] = 255
-        sealed += n
-    return sealed
 
 
-def _despill_edges(raw: bytearray, w: int, h: int) -> int:
-    """Repaint the contaminated ring of pixels along the silhouette.
-
-    A keyed edge pixel is a blend of the character and the plate behind it, so
-    it keeps a tint of the plate: measured across these skins, over half of all
-    edge pixels sat closer to the key colour than to the art. On a light
-    background that is invisible, which is why it survived this long; on a dark
-    desktop it is a green or cyan halo tracing the outline.
-
-    Rather than model the spill, each edge pixel takes the average colour of
-    its *interior* neighbours — pixels that are opaque and not themselves on
-    the edge, so uncontaminated by construction. Alpha is untouched, so the
-    silhouette does not change shape.
-    """
-
-    edge = bytearray(w * h)
-    for y in range(1, h - 1):
-        for x in range(1, w - 1):
-            i = y * w + x
-            if raw[i * 4 + 3] < ALPHA_CUTOFF:
-                continue
-            if (
-                raw[(i - 1) * 4 + 3] < ALPHA_CUTOFF
-                or raw[(i + 1) * 4 + 3] < ALPHA_CUTOFF
-                or raw[(i - w) * 4 + 3] < ALPHA_CUTOFF
-                or raw[(i + w) * 4 + 3] < ALPHA_CUTOFF
-            ):
-                edge[i] = 1
-
-    repainted = 0
-    updates: list[tuple[int, int, int, int]] = []
-    for y in range(1, h - 1):
-        for x in range(1, w - 1):
-            i = y * w + x
-            if not edge[i]:
-                continue
-            r = g = b = n = 0
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
-                    j = i + dy * w + dx
-                    if j == i or edge[j] or raw[j * 4 + 3] < ALPHA_CUTOFF:
-                        continue
-                    r += raw[j * 4]
-                    g += raw[j * 4 + 1]
-                    b += raw[j * 4 + 2]
-                    n += 1
-            if n:
-                updates.append((i, r // n, g // n, b // n))
-
-    for i, r, g, b in updates:
-        raw[i * 4] = r
-        raw[i * 4 + 1] = g
-        raw[i * 4 + 2] = b
-        repainted += 1
-    return repainted
 
 
-def _write_png_rgba(path: Path, w: int, h: int, raw: bytes) -> None:
-    """Minimal RGBA PNG writer — no Pillow on the target machine."""
-
-    rows = bytearray()
-    for y in range(h):
-        rows.append(0)  # filter type: none
-        rows += raw[y * w * 4 : (y + 1) * w * 4]
-
-    def chunk(tag: bytes, payload: bytes) -> bytes:
-        return (
-            struct.pack(">I", len(payload))
-            + tag
-            + payload
-            + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF)
-        )
-
-    path.write_bytes(
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
-        + chunk(b"IDAT", zlib.compress(bytes(rows), 9))
-        + chunk(b"IEND", b"")
-    )
 
 
 def build_frame(src: Path, key: str, crop: tuple[int, int, int, int], gif_out: Path, png_out: Path) -> int:
