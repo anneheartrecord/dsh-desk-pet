@@ -3,35 +3,31 @@
 What v1 deliberately left out, and why. Ordered by how much each one is missed
 in daily use, not by how hard it is.
 
-## v2
+## Shipped in v2
 
-### Skin switching as a feature, not a side effect
+Right-click opens a native menu instead of cycling skins: quiet mode, the
+session list, a skin submenu, menu-bar and Dock visibility, an update check, and
+quit. A shipped skill turns one image into a full skin, generated on the user's
+own tool and credentials, installed outside the package so an upgrade cannot
+delete it. The frame pipeline is pure standard library — no ffmpeg — which is
+what let the install path exist on a user's machine at all.
 
-Right-click currently cycles to the next skin. That was the cheapest way to
-prove multiple skins work, and it is the wrong interaction to keep: there is no
-way to see what you are choosing between, no way to go back one, and no way to
-reach a specific skin without clicking through the others.
+## Still open
 
-Right-click should open an `NSMenu` listing the skins with the current one
-ticked, plus Quit. The plumbing already exists — `rightMouseDown:` is bound and
-`skins.list_skins()` already discovers folders on disk — so this is a menu, not
-a redesign.
+### Settings window
 
-### DIY skins from a photo
+Deferred from v2 because nothing in the package has a window UI: the pet is a
+200px frameless window and a panel, and a settings surface would be built from
+`objc_msgSend` upwards. Everything it would hold is reachable from the menu
+today, which is why it waited rather than blocked.
 
-Hand the agent an image and get a skin: a photo of a cat becomes a cat pet.
-`list_skins()` already picks up any folder under `assets/skins/<id>/`, so
-nothing in the app needs to change; the work is entirely in the art pipeline.
+### Mini mode
 
-The pipeline is most of the way there. `generate_frames.py` is already
-image-to-image only, which is exactly what turning one photo into 18 consistent
-poses requires. What it does not yet do is derive the first still from an
-arbitrary photo rather than from an existing skin's idle frame, and the
-per-state prompts are written for creatures rather than for whatever arrives.
-
-Open question worth settling before building it: a photo of a person is not a
-photo of a cat. Turning someone's face into a chibi sprite is a different
-transformation from restyling an animal, and the same prompt will not do both.
+Not a size change. The reference implementation docks to the screen edge and
+swaps in a **separate eight-pose art set** — enter, peek, alert, happy, sleep,
+crabwalk and two more. That is eight new poses per skin, and a skin generated
+from someone's photo would have none of them, so it needs a way for a skin to
+declare it does not support the mode.
 
 ### Click-through on the transparent margin
 
@@ -41,6 +37,12 @@ the corners hit the pet instead of whatever is behind it. The fix is a
 It is written and unit-tested against the frame data; what is missing is wiring
 it into the AppKit view, which needs care because `hitTest:` runs on every
 mouse move and must not decode a PNG each time.
+
+The menu makes its absence more visible: a stray right-click on the margin now
+opens a seven-item menu over whatever was behind it, where before it quietly
+cycled a skin. `imaging.alpha_bounds` is the precomputed-alpha groundwork this
+needs; what remains is the `NSPoint`-by-value encoding the menu work
+deliberately avoided.
 
 ### Transition frames
 
