@@ -139,9 +139,18 @@ class PetWindow:
         self.on_moved = on_moved
         self.on_menu = on_menu
         self.on_menu_action = on_menu_action
-        # Tag -> action key. Tags are scalars, so nothing here needs to keep an
-        # Objective-C object alive to survive the round trip.
+        # Tag <-> action key. Tags are scalars, so nothing here needs to keep
+        # an Objective-C object alive to survive the round trip.
+        #
+        # A tag is assigned to an action once and reused for every menu built
+        # afterwards. Numbering them per build looked simpler and was wrong:
+        # the status-bar menu and the right-click menu are separate NSMenus
+        # built at different moments, and a rebuild that renumbered — installing
+        # a skin changes how many entries precede the rest — left the older
+        # menu's items carrying tags that now meant something else. Picking
+        # Quit from the menu bar would have run whatever had taken tag 11.
         self._menu_actions: dict[int, str] = {}
+        self._menu_tags: dict[str, int] = {}
         self.menu_open = False
         self._status_item = None
         self.hit_test = hit_test
@@ -249,8 +258,7 @@ class PetWindow:
                 sub = self.build_menu(entry.children)
                 self._void_ptr(item, rt.sel("setSubmenu:"), sub)
             else:
-                tag = len(self._menu_actions) + 1
-                self._menu_actions[tag] = entry.action
+                tag = self._tag_for(entry.action)
                 self._void_long(item, rt.sel("setTag:"), tag)
                 self._void_ptr(item, rt.sel("setTarget:"), self._view)
                 self._void_ptr(item, rt.sel("setAction:"), rt.sel("petMenuPick:"))
@@ -259,9 +267,16 @@ class PetWindow:
             self._void_ptr(menu, rt.sel("addItem:"), item)
         return menu
 
+    def _tag_for(self, action: str) -> int:
+        tag = self._menu_tags.get(action)
+        if tag is None:
+            tag = len(self._menu_tags) + 1
+            self._menu_tags[action] = tag
+            self._menu_actions[tag] = action
+        return tag
+
     def _popup_menu(self, model, event) -> None:
         rt = self.rt
-        self._menu_actions.clear()
         menu = self.build_menu(model)
         self.menu_open = True
         try:

@@ -593,6 +593,42 @@ class RendererTests(unittest.TestCase):
             pet.set_menu_bar_visible(False)
             pet.close()
 
+    def test_tags_stay_valid_across_rebuilds_and_a_changing_skin_list(self) -> None:
+        """Two NSMenus exist — the right-click one and the status bar's — and
+        they are built at different moments.
+
+        Numbering tags per build meant a rebuild renumbered them, and installing
+        a skin changes how many entries precede the rest. The older menu's items
+        then carried tags that had come to mean something else, so picking Quit
+        from the menu bar would have run whatever had taken that number.
+        """
+
+        clock = [0]
+        app = _app(clock)
+        pet = nswindow.PetWindow(160, 160, x=300, y=300)
+        try:
+            pet.build_menu(app.menu_model())
+            before = dict(pet._menu_actions)
+            self.assertTrue(before)
+
+            # Rebuild with an extra skin, as installing one would produce.
+            bigger = list(app.menu_model())
+            for index, entry in enumerate(bigger):
+                if entry.kind == "submenu":
+                    extra = entry.children[0].__class__(
+                        kind="item", title="Extra", action="skin:extra-one")
+                    bigger[index] = entry.__class__(
+                        kind="submenu", title=entry.title,
+                        children=(*entry.children, extra))
+            pet.build_menu(tuple(bigger))
+
+            for tag, action in before.items():
+                self.assertEqual(pet._menu_actions.get(tag), action,
+                                 f"tag {tag} changed meaning between builds")
+            self.assertIn("skin:extra-one", pet._menu_actions.values())
+        finally:
+            pet.close()
+
     def test_panel_redraw_does_not_leak_layers(self) -> None:
         panel = nswindow.PanelWindow()
         try:
