@@ -23,6 +23,7 @@ import os
 import sys
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import bridge, nswindow, packs, prefs as prefs_store, sessions
@@ -53,6 +54,23 @@ def now_ms() -> int:
     return int(time.monotonic() * 1000)
 
 
+@dataclass(frozen=True)
+class MenuEntry:
+    """One row of the right-click menu, as data.
+
+    The window turns these into `NSMenuItem`s and decides nothing. Keeping the
+    shape here is what lets the menu's contents be asserted with no display,
+    the same trick `panel_rows` uses.
+    """
+
+    kind: str  # "item" | "separator" | "submenu"
+    title: str = ""
+    action: str = ""
+    checked: bool = False
+    enabled: bool = True
+    children: tuple["MenuEntry", ...] = ()
+
+
 class DeskPetApp:
     """Owns the pet's loop. All state transitions go through PetRuntime."""
 
@@ -79,6 +97,10 @@ class DeskPetApp:
         self._published_at_ms = -HEARTBEAT_MS
         self._topmost_at_ms = -TOPMOST_MS
         self._drawn_frame: Path | None = None
+        # The update checker replaces this with a real status in its own unit.
+        # Until then the menu shows the resting label rather than a state
+        # nothing can produce.
+        self.update_label = "Check for Updates"
         self._pointer_seen: tuple[float, float] | None = None
         self._pointer_moved_ms = 0
         self._pointer_checked_ms = -400
@@ -178,6 +200,49 @@ class DeskPetApp:
         total = sessions.total_count()
         hidden = max(0, total - len(shown))
         return rows, (f"{hidden} other session{'s' if hidden != 1 else ''}" if hidden else "")
+
+    def menu_model(self) -> tuple[MenuEntry, ...]:
+        """The right-click menu, in the order it is shown.
+
+        Every entry is enabled. The two visibility toggles are deliberately
+        independent: the reference implementation disables whichever one is
+        last, because its pet can be hidden and they are the only ways back to
+        the menu, but this pet cannot be hidden and right-click always reaches
+        it. Carrying that rule across would strand a Dock icon with no way to
+        remove it.
+        """
+
+        panel_open = self.panel is not None and self.panel.visible
+        skins = tuple(
+            MenuEntry(
+                kind="item",
+                title=skin.name,
+                action=f"skin:{skin.id}",
+                checked=skin.id == self.runtime.skin_id,
+            )
+            for skin in list_skins()
+        )
+        return (
+            # A checkmark, not a label swap: the other two toggles carry one, and
+            # an inverse verb alone never shows the mode as currently on.
+            MenuEntry(kind="item", title="Sleep (Do Not Disturb)", action="dnd",
+                      checked=self.runtime.do_not_disturb),
+            MenuEntry(kind="separator"),
+            # Named for what the click will do. A one-way Open would be the only
+            # item in the menu that can be picked to no effect.
+            MenuEntry(kind="item", title="Hide Dashboard" if panel_open else "Open Dashboard",
+                      action="dashboard"),
+            MenuEntry(kind="submenu", title="Skin", children=skins),
+            MenuEntry(kind="separator"),
+            MenuEntry(kind="item", title="Show in Menu Bar", action="menu_bar",
+                      checked=self.prefs.show_menu_bar),
+            MenuEntry(kind="item", title="Show in Dock", action="dock",
+                      checked=self.prefs.show_dock),
+            MenuEntry(kind="separator"),
+            MenuEntry(kind="item", title=self.update_label, action="updates"),
+            MenuEntry(kind="separator"),
+            MenuEntry(kind="item", title="Quit", action="quit"),
+        )
 
     def toggle_panel(self) -> None:
         if self.window is None:

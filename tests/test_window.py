@@ -15,6 +15,7 @@ from dsh_desk_pet import nswindow, packs
 from dsh_desk_pet.app import DeskPetApp
 from dsh_desk_pet.mapper import AgentActivity
 from dsh_desk_pet.runtime import PetRuntime
+from dsh_desk_pet.skins import list_skins
 
 
 def _app(clock_ref):
@@ -102,6 +103,102 @@ class HitTestTests(unittest.TestCase):
     def test_every_skin_has_a_subject_box(self) -> None:
         for skin in packs.available_skins():
             self.assertIsNotNone(packs.subject_box(skin), f"{skin} has no subject box")
+
+
+class MenuModelTests(unittest.TestCase):
+    """The menu as plain data.
+
+    Computed here rather than in the window for the same reason `panel_rows`
+    is: what the menu *says* is then testable with no display, and the AppKit
+    half is left with nothing to decide.
+    """
+
+    def setUp(self) -> None:
+        self.clock = [0]
+        self.app = _app(self.clock)
+
+    def _by_action(self, action):
+        return next(e for e in self.app.menu_model() if e.action == action)
+
+    def test_order_and_shape_match_the_menu_spec(self) -> None:
+        model = self.app.menu_model()
+        self.assertEqual(
+            [e.kind for e in model],
+            ["item", "separator", "item", "submenu", "separator",
+             "item", "item", "separator", "item", "separator", "item"],
+        )
+        self.assertEqual(
+            [e.action for e in model if e.kind == "item"],
+            ["dnd", "dashboard", "menu_bar", "dock", "updates", "quit"],
+        )
+        self.assertEqual(sum(1 for e in model if e.kind == "separator"), 4)
+
+    def test_sleep_entry_is_checked_only_while_the_mode_is_on(self) -> None:
+        self.assertFalse(self._by_action("dnd").checked)
+        self.app.runtime.set_do_not_disturb(True, now_ms=self.clock[0])
+        entry = self._by_action("dnd")
+        self.assertTrue(entry.checked)
+        self.assertEqual(entry.title, "Sleep (Do Not Disturb)",
+                         "the title is stable; the checkmark carries the state")
+
+    def test_skin_submenu_lists_every_skin_with_exactly_one_ticked(self) -> None:
+        submenu = next(e for e in self.app.menu_model() if e.kind == "submenu")
+        ids = [child.action for child in submenu.children]
+        self.assertEqual(ids, [f"skin:{skin.id}" for skin in list_skins()])
+        ticked = [c for c in submenu.children if c.checked]
+        self.assertEqual(len(ticked), 1)
+        self.assertEqual(ticked[0].action, f"skin:{self.app.runtime.skin_id}")
+
+    def test_selecting_a_skin_moves_the_tick(self) -> None:
+        self.app.select_skin("jellyfish")
+        submenu = next(e for e in self.app.menu_model() if e.kind == "submenu")
+        ticked = [c for c in submenu.children if c.checked]
+        self.assertEqual([c.action for c in ticked], ["skin:jellyfish"])
+
+    def test_visibility_entries_are_enabled_in_every_combination(self) -> None:
+        """There is deliberately no rule keeping one of them on.
+
+        The reference implementation disables the last remaining affordance
+        because its pet can be hidden. Ours cannot, and right-click always
+        reaches the menu, so a guard here would strand a Dock icon the user
+        could not remove.
+        """
+
+        for menu_bar in (False, True):
+            for dock in (False, True):
+                with self.subTest(menu_bar=menu_bar, dock=dock):
+                    self.app.prefs.show_menu_bar = menu_bar
+                    self.app.prefs.show_dock = dock
+                    model = self.app.menu_model()
+                    self.assertTrue(all(e.enabled for e in model))
+                    self.assertEqual(self._by_action("menu_bar").checked, menu_bar)
+                    self.assertEqual(self._by_action("dock").checked, dock)
+
+    def test_both_off_is_a_well_formed_menu(self) -> None:
+        self.app.prefs.show_menu_bar = False
+        self.app.prefs.show_dock = False
+        model = self.app.menu_model()
+        self.assertEqual(len(model), 11)
+        self.assertTrue(all(e.enabled for e in model))
+
+    def test_dashboard_entry_names_what_the_click_will_do(self) -> None:
+        """A one-way Open would be the only item in the menu that can do nothing."""
+
+        self.assertEqual(self._by_action("dashboard").title, "Open Dashboard")
+
+        class _Panel:
+            visible = True
+
+        self.app.panel = _Panel()
+        self.assertEqual(self._by_action("dashboard").title, "Hide Dashboard")
+
+    def test_every_item_carries_an_action_and_separators_do_not(self) -> None:
+        for entry in self.app.menu_model():
+            with self.subTest(kind=entry.kind, title=entry.title):
+                if entry.kind == "item":
+                    self.assertTrue(entry.action, "an item with no action cannot be dispatched")
+                else:
+                    self.assertEqual(entry.action, "")
 
 
 class ClickUnderDoNotDisturbTests(unittest.TestCase):
