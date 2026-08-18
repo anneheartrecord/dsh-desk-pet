@@ -20,13 +20,14 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import sys
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import bridge, nswindow, packs, prefs as prefs_store, sessions
+from . import bridge, nswindow, packs, prefs as prefs_store, sessions, updates
 from .anim import motion_for
 from .mapper import AgentActivity
 from .observer import observe_activity
@@ -101,6 +102,8 @@ class DeskPetApp:
         # Until then the menu shows the resting label rather than a state
         # nothing can produce.
         self.update_label = "Check for Updates"
+        self._update_checked_ms = -updates.CACHE_MS
+        self._update_thread: threading.Thread | None = None
         self._pointer_seen: tuple[float, float] | None = None
         self._pointer_moved_ms = 0
         self._pointer_checked_ms = -400
@@ -301,8 +304,44 @@ class DeskPetApp:
     def _apply_visibility(self) -> None:
         """Hook for the Dock and menu-bar work; a no-op until that unit lands."""
 
+    def refresh_update_label(self, *, force: bool = False) -> None:
+        """Refresh the update label, off the frame loop.
+
+        Called when the menu is about to open rather than when the item is
+        picked, because an NSMenu dismisses on selection and a label written
+        afterwards is shown to nobody.
+
+        The fetch runs on a worker thread for the same reason the observer
+        does: a slow registry on the loop thread would freeze the animation and
+        stall the heartbeat, and past the staleness window a second launch
+        would decide this pet had died.
+        """
+
+        now = self.clock()
+        if not force and now - self._update_checked_ms < updates.CACHE_MS:
+            return
+        if self._update_thread is not None and self._update_thread.is_alive():
+            return  # a second menu open must not start a second fetch
+        self._update_checked_ms = now
+
+        def run() -> None:
+            published = updates.fetch_published(updates.package_name())
+            if published is None:
+                self.update_label = updates.unreachable_label()
+                return
+            self.update_label = updates.label(
+                updates.installed_version(), published,
+                upgrade_hint=f"dsh plugin --profile web add {updates.package_name()}",
+            )
+
+        self._update_thread = threading.Thread(
+            target=run, name="dsh-desk-pet-updates", daemon=True)
+        self._update_thread.start()
+
     def check_for_updates(self) -> None:
-        """Hook for the update checker; a no-op until that unit lands."""
+        """Picking the item forces a refresh; the answer lands on the next open."""
+
+        self.refresh_update_label(force=True)
 
     def show_panel(self) -> None:
         """Open the panel, or leave it open. Never closes it.
@@ -504,8 +543,34 @@ class DeskPetApp:
         )
         self.render(self.clock())
 
+    def install_signal_handlers(self) -> None:
+        """Leave on SIGTERM the same way a menu Quit does.
+
+        `--stop` and the host plugin's teardown both send SIGTERM, which by
+        default kills the process outright — so `quit` never runs, the state
+        file is never cleared, and the next launch reads a file that still
+        looks fresh and refuses to start until the staleness window passes.
+
+        Only ever installed on the main thread, and never in a test.
+        """
+
+        def leave(_signum, _frame):
+            self._running = False
+
+        for name in ("SIGTERM", "SIGINT"):
+            number = getattr(signal, name, None)
+            if number is None:
+                continue
+            try:
+                signal.signal(number, leave)
+            except (ValueError, OSError):
+                # Not the main thread, or a platform without it. The loop still
+                # exits on its own conditions.
+                pass
+
     def run(self) -> int:
         self.build()
+        self.install_signal_handlers()
         self._start_watcher()
         self._running = True
         last_poll = 0

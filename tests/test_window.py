@@ -8,6 +8,9 @@ be swapped from Tk to AppKit without any of the state machine changing.
 
 from __future__ import annotations
 
+import os
+import signal
+import threading
 import unittest
 from pathlib import Path
 
@@ -299,6 +302,43 @@ class PanelShowHideTests(unittest.TestCase):
         app.panel.hide = lambda: hidden.append("hide")
         app.toggle_panel()
         self.assertEqual(hidden, ["hide"], "toggle still alternates")
+
+
+class ShutdownTests(unittest.TestCase):
+    """SIGTERM must leave the same way a menu Quit does.
+
+    `--stop` and the plugin teardown both send SIGTERM. Without a handler the
+    process dies outright, `quit` never runs, and the published state file
+    survives — so the next launch reads a file that still looks fresh and
+    refuses to start until the staleness window has passed.
+    """
+
+    def test_sigterm_stops_the_loop_rather_than_killing_the_process(self) -> None:
+        clock = [0]
+        app = _app(clock)
+        app._running = True
+        app.install_signal_handlers()
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+        finally:
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        self.assertFalse(app._running, "the loop should have been asked to leave")
+
+    def test_installing_off_the_main_thread_does_not_raise(self) -> None:
+        clock = [0]
+        app = _app(clock)
+        errors = []
+
+        def install():
+            try:
+                app.install_signal_handlers()
+            except Exception as exc:  # pragma: no cover - the point is that it does not
+                errors.append(exc)
+
+        thread = threading.Thread(target=install)
+        thread.start()
+        thread.join()
+        self.assertEqual(errors, [])
 
 
 class ClickUnderDoNotDisturbTests(unittest.TestCase):
