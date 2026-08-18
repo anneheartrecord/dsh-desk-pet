@@ -190,7 +190,7 @@ U1's own test scenarios assert against the DND latch and the visibility prefs, s
 
 **Requirements.** R2, R4, R7.
 
-**Dependencies.** None.
+**Dependencies.** U3, U4. Its own scenarios assert against the visibility prefs and the do-not-disturb latch, so it cannot be written before both exist.
 
 **Files.** `src/dsh_desk_pet/app.py`, `tests/test_window.py`.
 
@@ -260,11 +260,11 @@ Map a picked item back to its action with `setTag:`, which takes a scalar, rathe
 
 **Requirements.** R3.
 
-**Dependencies.** U3.
+**Dependencies.** None. The latch is runtime state and is deliberately not persisted, so it does not wait on the prefs work.
 
 **Files.** `src/dsh_desk_pet/runtime.py`, `src/dsh_desk_pet/app.py`, `tests/test_runtime.py`.
 
-**Approach.** Add a latch to `PetRuntime`, checked at the top of the state transition so observations are dropped while it is on, per KTD6. `poke()` is latched too: left-clicking a sleeping pet still toggles the panel, but does not wake it and does not clear the latch. Only the menu item clears it. Left unstated, the implementer picks one of two visibly different products, and whichever they pick the other reads as a bug. The existing `sleeping` state is timer-derived and any non-idle observation overrides it; DND must not be overridable that way. Entering DND shows the sleeping pose. Leaving it resumes from the current observation. The latch is runtime state only.
+**Approach.** Add a latch to `PetRuntime`, checked at the top of the state transition so observations are dropped while it is on, per KTD6. `poke()` is latched too: left-clicking a sleeping pet still toggles the panel, but does not wake it and does not clear the latch. Only the menu item clears it. Left unstated, the implementer picks one of two visibly different products, and whichever they pick the other reads as a bug. The existing `sleeping` state is timer-derived and any non-idle observation overrides it; DND must not be overridable that way. Entering DND shows the sleeping pose. Leaving it wakes the pet to idle and re-arms the doze timer: an idle observation refuses to lift `sleeping` and `tick` has no exit from it, so leaving the pose alone would strand a visibly asleep pet under a menu item reading unchecked. The clock argument is required, because a defaulted one stamps the state clock at zero and starts the sleeping loop at an arbitrary phase. The latch is runtime state only.
 
 **Test scenarios.**
 - With DND on, a working observation does not change the state.
@@ -299,11 +299,11 @@ Map a picked item back to its action with `setTag:`, which takes a scalar, rathe
 
 ### U6. Show in Dock and Show in Menu Bar
 
-**Goal.** Let the user choose where the pet is reachable from, without letting them strand it.
+**Goal.** Let the user choose where the pet is reachable from.
 
 **Requirements.** R4.
 
-**Dependencies.** U3.
+**Dependencies.** U1, U3.
 
 **Files.** `src/dsh_desk_pet/nswindow.py`, `src/dsh_desk_pet/app.py`, `tests/test_window.py`.
 
