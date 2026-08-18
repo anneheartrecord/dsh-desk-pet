@@ -215,6 +215,10 @@ class DeskPetApp:
         remove it.
         """
 
+        # Refreshed here because building the model is what happens just before
+        # the menu is shown. Refreshing on the click instead writes the answer
+        # into a menu that has already dismissed, so the user sees nothing.
+        self.refresh_update_label()
         panel_open = self.panel is not None and self.panel.visible
         skins = tuple(
             MenuEntry(
@@ -299,6 +303,23 @@ class DeskPetApp:
                 self.quit()
         except Exception:
             # Same reasoning as the trampolines in `nswindow`: stay alive.
+            pass
+
+    def _on_menu_tracking(self, open_: bool) -> None:
+        """Publish either side of the menu's modal loop.
+
+        The loop thread is blocked for as long as the menu is up, so the
+        heartbeat cannot run. Publishing immediately before and after bounds the
+        gap to the tracking duration rather than leaving a stamp that was
+        already up to two seconds old when the menu opened.
+        """
+
+        if not self.publish_state:
+            return
+        try:
+            bridge.publish(self.runtime.skin_id, self.runtime.state, self.clock())
+            self._published_at_ms = self.clock()
+        except OSError:
             pass
 
     def _apply_visibility(self) -> None:
@@ -549,6 +570,7 @@ class DeskPetApp:
             on_moved=self._on_moved,
             on_menu=self.menu_model,
             on_menu_action=self.on_menu_action,
+            on_menu_tracking=self._on_menu_tracking,
             hit_test=self.is_on_pet,
         )
         self.render(self.clock())
@@ -580,6 +602,10 @@ class DeskPetApp:
 
     def run(self) -> int:
         self.build()
+        # Without this the prefs round-trip but never reach the screen: a pet
+        # restarted with the Dock icon saved on shows no icon while the menu
+        # renders the entry ticked.
+        self._apply_visibility()
         self.install_signal_handlers()
         self._start_watcher()
         self._running = True
@@ -708,7 +734,10 @@ def main(argv: list[str] | None = None) -> int:
         except skininstall.InstallError as exc:
             print(f"could not install skin: {exc}", file=sys.stderr)
             return 1
+        saved.skin_id = args.install_skin
+        prefs_store.save(saved)
         print(f"installed skin {args.install_skin!r} -> {installed}")
+        print("it is now the active skin; restart the pet to see it")
         return 0
 
     if args.probe:

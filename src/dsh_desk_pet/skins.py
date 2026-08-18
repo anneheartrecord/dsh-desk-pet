@@ -61,6 +61,23 @@ def _title(skin_id: str) -> str:
     return skin_id.replace("-", " ").replace("_", " ").strip().title() or skin_id
 
 
+def _readable_format(path: Path) -> bool:
+    """Is this skin's layout one this version understands?
+
+    Imported lazily: `skininstall` imports this module, so a module-level
+    import would be circular.
+    """
+
+    try:
+        from .skininstall import is_supported
+    except ImportError:  # pragma: no cover - defensive
+        return True
+    try:
+        return is_supported(path)
+    except Exception:  # pragma: no cover - never block discovery on this
+        return True
+
+
 def _discovered(home: Path | None = None) -> tuple[Skin, ...]:
     """Skin folders on disk that are not part of the shipped set.
 
@@ -80,6 +97,11 @@ def _discovered(home: Path | None = None) -> tuple[Skin, ...]:
                 continue
             # A folder with no frames is a half-finished import, not a skin.
             if not any(entry.glob("*/*.png")):
+                continue
+            if not _readable_format(entry):
+                # Written by a newer version than this one. Skipped rather than
+                # loaded or deleted: the user paid to generate it, and a later
+                # release can migrate it.
                 continue
             seen.add(entry.name)
             name = _title(entry.name)

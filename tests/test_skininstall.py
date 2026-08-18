@@ -156,6 +156,47 @@ class IdSafetyTests(_Base):
         self.assertIn("outside the skin root", str(caught.exception))
 
 
+class EveryFrameTests(_Base):
+    """Validation covered a prefix while the copy took the whole tree."""
+
+    def test_a_fourth_undecodable_frame_is_refused(self) -> None:
+        """The renderer plays whatever is in the directory, not the first three."""
+
+        (self.src / "idle" / "99.png").write_bytes(b"\xff\xd8\xff garbage" * 40)
+        with self.assertRaises(skininstall.InstallError) as caught:
+            skininstall.install(self.src, "mycat", home=self.home)
+        self.assertIn("99.png", str(caught.exception))
+
+    def test_only_frames_are_copied(self) -> None:
+        (self.src / "README-secret.txt").write_text("should not travel", encoding="utf-8")
+        path = skininstall.install(self.src, "mycat", home=self.home)
+        self.assertFalse((path / "README-secret.txt").exists(),
+                         "a skin is a directory people share; only frames belong in it")
+
+
+class SymlinkTests(_Base):
+    def test_installing_through_a_symlink_is_refused(self) -> None:
+        """Resolving follows the link, so the check has to precede it.
+
+        Otherwise `alias -> victim` installs over the victim while the caller
+        believes it is writing `alias`.
+        """
+
+        import os
+
+        victim = self.root / "victim"
+        shutil.copytree(SOURCE, victim)
+        (victim / skininstall.MARKER).write_text('{"format": 1}', encoding="utf-8")
+        before = (victim / "idle" / "00.png").read_bytes()
+        os.symlink(victim, self.root / "alias")
+
+        with self.assertRaises(skininstall.InstallError) as caught:
+            skininstall.install(self.src, "alias", home=self.home)
+        self.assertIn("symlink", str(caught.exception))
+        self.assertEqual((victim / "idle" / "00.png").read_bytes(), before,
+                         "the victim skin must be untouched")
+
+
 class ReplaceTests(_Base):
     def test_our_own_install_is_replaced(self) -> None:
         skininstall.install(self.src, "mycat", home=self.home)

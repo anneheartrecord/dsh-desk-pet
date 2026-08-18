@@ -77,7 +77,13 @@ def _target(skin_id: str, home: Path | None = None) -> Path:
     """The install path, proved to sit inside the skin root."""
 
     root = _root(home).resolve()
-    target = (root / skin_id).resolve()
+    literal = _root(home) / skin_id
+    if literal.is_symlink():
+        # Checked before resolving, because resolving follows the link — a
+        # symlink named `alias` pointing at `victim` would otherwise install
+        # over `victim` while the caller believed it was writing `alias`.
+        raise InstallError(f"{skin_id!r} is a symlink; refusing to install through it")
+    target = literal.resolve()
     if target == root or root not in target.parents:
         raise InstallError(f"refusing a target outside the skin root: {target}")
     return target
@@ -93,7 +99,10 @@ def inspect_frames(source: Path) -> dict:
         if len(frames) < FRAMES_PER_STATE:
             raise InstallError(
                 f"state {state!r} has {len(frames)} frames; {FRAMES_PER_STATE} are required")
-        for frame in frames[:FRAMES_PER_STATE]:
+        # Every frame, not just the first three. The renderer plays whatever is
+        # in the directory, so validating a prefix and copying the whole tree
+        # would let an undecodable fourth frame reach the screen.
+        for frame in frames:
             try:
                 w, h, raw = imaging.decode_png(frame.read_bytes())
             except imaging.ImageError as exc:
@@ -196,7 +205,11 @@ def install(source: Path, skin_id: str, *, home: Path | None = None,
     staging = root / f".{skin_id}.staging"
     shutil.rmtree(staging, ignore_errors=True)
     try:
-        shutil.copytree(source, staging)
+        staging.mkdir(parents=True)
+        for state in STATES:
+            (staging / state).mkdir()
+            for frame in sorted((source / state).glob("*.png")):
+                shutil.copy2(frame, staging / state / frame.name)
         (staging / MANIFEST).write_text(
             json.dumps({
                 "frame_size": imaging.FRAME_SIZE,

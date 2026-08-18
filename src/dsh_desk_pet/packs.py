@@ -200,13 +200,23 @@ def frame_at(skin_id: str, state: str, elapsed_ms: int, *, web: bool = False) ->
 
 
 def pack_inventory(*, web: bool = False) -> dict[str, dict[str, int]]:
-    """skin -> state -> frame count, counting only art that really exists."""
+    """skin -> state -> frame count, counting only art that really exists.
+
+    Spans both roots when reading the PNG tree, so `--probe` and `--inventory`
+    report the same set the skin submenu offers. `skin_ids` rather than `skins`:
+    the module of that name is imported here, and shadowing it inside the
+    function is a trap for whoever edits this next.
+    """
 
     root = WEB_ROOT if web else SKIN_ROOT
-    skins = sorted(p.name for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+    shipped = sorted(p.name for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+    if web:
+        skin_ids = sorted({*shipped, *(skin.id for skin in skins.list_skins())})
+    else:
+        skin_ids = shipped
     return {
-        skin: {state: len(frames_for(skin, state, web=web)) for state in STATES}
-        for skin in skins
+        skin_id: {state: len(frames_for(skin_id, state, web=web)) for state in STATES}
+        for skin_id in skin_ids
     }
 
 
@@ -235,6 +245,18 @@ def subject_box(skin_id: str) -> tuple[int, int, int, int] | None:
 
 
 def available_skins() -> tuple[str, ...]:
+    """Every skin id with frames on disk, both roots.
+
+    Enumerated from the same catalog the menu shows. Reading the shipped tree
+    alone made `--probe` and `--inventory` report a set that disagreed with the
+    skin submenu the moment a user installed anything.
+    """
+
+    return tuple(skin.id for skin in skins.list_skins()
+                 if frames_for(skin.id, "idle", web=True))
+
+
+def _shipped_skin_ids() -> tuple[str, ...]:
     if not SKIN_ROOT.is_dir():
         return ()
     return tuple(sorted(p.name for p in SKIN_ROOT.iterdir() if p.is_dir()))

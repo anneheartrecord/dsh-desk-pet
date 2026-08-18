@@ -110,6 +110,7 @@ class PetWindow:
     * ``on_moved(x,y)``— finished a drag, in screen coordinates
     * ``on_menu()``    — right-clicked; returns the menu model to show
     * ``on_menu_action(key)`` — an item in that menu was chosen
+    * ``on_menu_tracking(open)`` — the menu's modal loop started or ended
     * ``on_drag_start()`` — a drag just began; `dragging` stays True until it ends
     * ``hit_test(x,y)``— is this point on the character? Accepted and stored,
       but not wired to AppKit yet: see `_make_view_class` on why overriding
@@ -127,6 +128,7 @@ class PetWindow:
         on_moved: Callable[[int, int], None] | None = None,
         on_menu: Callable[[], object] | None = None,
         on_menu_action: Callable[[str], None] | None = None,
+        on_menu_tracking: Callable[[bool], None] | None = None,
         hit_test: Callable[[float, float], bool] | None = None,
         on_drag_start: Callable[[], None] | None = None,
     ) -> None:
@@ -139,6 +141,7 @@ class PetWindow:
         self.on_moved = on_moved
         self.on_menu = on_menu
         self.on_menu_action = on_menu_action
+        self.on_menu_tracking = on_menu_tracking
         # Tag <-> action key. Tags are scalars, so nothing here needs to keep
         # an Objective-C object alive to survive the round trip.
         #
@@ -279,6 +282,16 @@ class PetWindow:
         rt = self.rt
         menu = self.build_menu(model)
         self.menu_open = True
+        # Menu tracking runs its own modal loop, so the frame loop — and with it
+        # the heartbeat — stops for as long as the menu is up. The published
+        # state goes stale after six seconds, and browsing a skin submenu for
+        # longer than that is ordinary; a second DSH profile launching in that
+        # window would decide no pet was running and start another one.
+        if self.on_menu_tracking:
+            try:
+                self.on_menu_tracking(True)
+            except Exception:
+                pass
         try:
             # All-pointer selector on purpose. The positioning variant takes an
             # NSPoint by value, and a wrong struct encoding on arm64 does not
@@ -289,6 +302,11 @@ class PetWindow:
                   menu, event, self._view)
         finally:
             self.menu_open = False
+            if self.on_menu_tracking:
+                try:
+                    self.on_menu_tracking(False)
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------- internals
 
@@ -482,6 +500,11 @@ class PetWindow:
                 self._status_item = None
             return
         if self._status_item is not None:
+            # Already there: refresh its menu rather than returning. Built once
+            # and left alone, its checkmarks and skin list froze at whatever
+            # they were when the toggle was flipped on.
+            if model is not None:
+                self._void_ptr(self._status_item, rt.sel("setMenu:"), self.build_menu(model))
             return
         bar = self._ptr(rt.cls("NSStatusBar"), rt.sel("systemStatusBar"))
         # -1 is NSVariableStatusItemLength.
