@@ -551,6 +551,48 @@ class RendererTests(unittest.TestCase):
         finally:
             pet.close()
 
+    def test_dock_toggle_restores_the_fullscreen_collection_behavior(self) -> None:
+        """Changing the activation policy resets NSWindowCollectionBehavior.
+
+        That is the flag keeping the pet above fullscreen Spaces, so without
+        re-applying it the pet silently drops behind a fullscreen app the first
+        time the Dock icon is toggled — visible only to someone who happens to
+        be in fullscreen at the time.
+        """
+
+        pet = nswindow.PetWindow(160, 160, x=300, y=300)
+        try:
+            rt = pet.rt
+            expected = (nswindow.CAN_JOIN_ALL_SPACES | nswindow.STATIONARY
+                        | nswindow.FULLSCREEN_AUXILIARY)
+            read = rt.sig(ctypes.c_ulong)
+            for visible in (True, False, True):
+                with self.subTest(dock=visible):
+                    pet.set_dock_visible(visible)
+                    behavior = read(pet._window, rt.sel("collectionBehavior"))
+                    self.assertEqual(behavior & expected, expected,
+                                     "the pet stopped joining every Space")
+                    level = pet._long_msg(pet._window, rt.sel("level"))
+                    self.assertEqual(level, nswindow.ASSISTIVE_TECH_HIGH_LEVEL)
+        finally:
+            pet.set_dock_visible(False)
+            pet.close()
+
+    def test_menu_bar_item_is_added_and_removed(self) -> None:
+        clock = [0]
+        app = _app(clock)
+        pet = nswindow.PetWindow(160, 160, x=300, y=300)
+        try:
+            self.assertIsNone(pet._status_item)
+            pet.set_menu_bar_visible(True, app.menu_model())
+            self.assertIsNotNone(pet._status_item, "no status item was created")
+            pet.set_menu_bar_visible(True, app.menu_model())  # idempotent
+            pet.set_menu_bar_visible(False)
+            self.assertIsNone(pet._status_item)
+        finally:
+            pet.set_menu_bar_visible(False)
+            pet.close()
+
     def test_panel_redraw_does_not_leak_layers(self) -> None:
         panel = nswindow.PanelWindow()
         try:

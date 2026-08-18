@@ -302,7 +302,16 @@ class DeskPetApp:
             pass
 
     def _apply_visibility(self) -> None:
-        """Hook for the Dock and menu-bar work; a no-op until that unit lands."""
+        """Push the two visibility prefs onto the window."""
+
+        if self.window is None:
+            return
+        try:
+            self.window.set_dock_visible(self.prefs.show_dock)
+            self.window.set_menu_bar_visible(self.prefs.show_menu_bar, self.menu_model())
+        except Exception:
+            # Called from a menu action, which runs inside an ObjC callback.
+            pass
 
     def refresh_update_label(self, *, force: bool = False) -> None:
         """Refresh the update label, off the frame loop.

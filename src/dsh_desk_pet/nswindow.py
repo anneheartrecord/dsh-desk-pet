@@ -44,6 +44,7 @@ ASSISTIVE_TECH_HIGH_LEVEL = 1500
 
 NSWindowStyleMaskBorderless = 0
 NSBackingStoreBuffered = 2
+NSApplicationActivationPolicyRegular = 0
 NSApplicationActivationPolicyAccessory = 1
 
 # Anything the runtime must not garbage-collect: ctypes callbacks handed to the
@@ -142,6 +143,7 @@ class PetWindow:
         # Objective-C object alive to survive the round trip.
         self._menu_actions: dict[int, str] = {}
         self.menu_open = False
+        self._status_item = None
         self.hit_test = hit_test
         self.on_drag_start = on_drag_start
         # True while AppKit's drag loop owns the mouse. `performWindowDragWithEvent:`
@@ -432,6 +434,55 @@ class PetWindow:
         self._void_long(self._window, self.rt.sel("setLevel:"), ASSISTIVE_TECH_HIGH_LEVEL)
         self._void_ulong(self._window, self.rt.sel("setCollectionBehavior:"),
                          CAN_JOIN_ALL_SPACES | STATIONARY | FULLSCREEN_AUXILIARY)
+
+    def set_dock_visible(self, visible: bool) -> None:
+        """Show or hide the Dock icon by changing the activation policy.
+
+        Re-applies level and collection behaviour immediately afterwards.
+        Changing the policy resets `NSWindowCollectionBehavior`, which is the
+        flag that keeps the pet above fullscreen Spaces — without this the pet
+        silently drops behind a fullscreen app the first time the Dock icon is
+        toggled.
+        """
+
+        rt = self.rt
+        app = self._ptr(rt.cls("NSApplication"), rt.sel("sharedApplication"))
+        policy = (NSApplicationActivationPolicyRegular if visible
+                  else NSApplicationActivationPolicyAccessory)
+        self._void_long(app, rt.sel("setActivationPolicy:"), policy)
+        self.float_above_fullscreen()
+
+    def set_menu_bar_visible(self, visible: bool, model=None) -> None:
+        """Add or remove the status-bar item.
+
+        A second way into the menu for anyone who never discovers that
+        right-clicking a 200px window does anything.
+        """
+
+        rt = self.rt
+        if not visible:
+            if self._status_item is not None:
+                bar = self._ptr(rt.cls("NSStatusBar"), rt.sel("systemStatusBar"))
+                self._void_ptr(bar, rt.sel("removeStatusItem:"), self._status_item)
+                self._status_item = None
+            return
+        if self._status_item is not None:
+            return
+        bar = self._ptr(rt.cls("NSStatusBar"), rt.sel("systemStatusBar"))
+        # -1 is NSVariableStatusItemLength.
+        make = rt.sig(ctypes.c_void_p, ctypes.c_double)
+        item = make(bar, rt.sel("statusItemWithLength:"), -1.0)
+        if not item:
+            return
+        # Held from Python: the status bar does not own it, and a collected
+        # item vanishes from the menu bar mid-session.
+        _KEEP.append(item)
+        self._status_item = item
+        button = self._ptr(item, rt.sel("button"))
+        if button:
+            self._void_ptr(button, rt.sel("setTitle:"), self._nsstring("\u25cf"))
+        if model is not None:
+            self._void_ptr(item, rt.sel("setMenu:"), self.build_menu(model))
 
     def pump(self, seconds: float) -> None:
         """Deliver AppKit events for a while. This is the frame tick.
