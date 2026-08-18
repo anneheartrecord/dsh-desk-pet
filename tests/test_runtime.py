@@ -134,5 +134,90 @@ class PokeTests(unittest.TestCase):
         self.assertEqual(runtime.poke(100), "working")
 
 
+class DoNotDisturbTests(unittest.TestCase):
+    """A user-chosen quiet mode, distinct from the doze the timers produce.
+
+    `sleeping` is reached by nothing happening and any activity overrides it.
+    This is the opposite: the user asked for quiet, so nothing the agent does
+    may take it away. Only the user gives it back.
+    """
+
+    def test_starts_off(self) -> None:
+        self.assertFalse(PetRuntime().do_not_disturb)
+
+    def test_entering_shows_the_sleeping_pose(self) -> None:
+        runtime = PetRuntime()
+        self.assertEqual(runtime.set_do_not_disturb(True, now_ms=1000), "sleeping")
+        self.assertTrue(runtime.do_not_disturb)
+
+    def test_activity_cannot_wake_it(self) -> None:
+        runtime = PetRuntime()
+        runtime.set_do_not_disturb(True, now_ms=0)
+        self.assertEqual(runtime.apply_activity(AgentActivity(kind="working"), 100), "sleeping")
+        self.assertEqual(runtime.apply_activity(AgentActivity(kind="error"), 200), "sleeping")
+        self.assertEqual(runtime.state, "sleeping")
+
+    def test_ticks_cannot_move_it(self) -> None:
+        runtime = PetRuntime()
+        runtime.set_do_not_disturb(True, now_ms=0)
+        self.assertEqual(runtime.tick(SLEEP_AFTER_MS * 4, user_idle_ms=0), "sleeping")
+
+    def test_poke_queues_a_hop_but_does_not_wake_or_clear(self) -> None:
+        """Petting a sleeping pet should still feel alive without defeating DND.
+
+        Waking on a click would silently cancel the mode with no menu
+        interaction, leaving the menu item still offering to wake a pet that is
+        already awake.
+        """
+
+        runtime = PetRuntime()
+        runtime.set_do_not_disturb(True, now_ms=0)
+        self.assertEqual(runtime.poke(100), "sleeping")
+        self.assertGreater(runtime.hop_until_ms, 100)
+        self.assertTrue(runtime.do_not_disturb)
+
+    def test_leaving_wakes_the_pet(self) -> None:
+        """Otherwise the pet stays visibly asleep with the menu reading awake.
+
+        An idle observation refuses to lift `sleeping` and `tick` has no exit
+        from it, so without this the pose would only change once the agent did
+        real work.
+        """
+
+        runtime = PetRuntime()
+        runtime.set_do_not_disturb(True, now_ms=0)
+        runtime.apply_activity(AgentActivity(kind="working"), 100)
+        self.assertEqual(runtime.set_do_not_disturb(False, now_ms=200), "idle")
+        self.assertFalse(runtime.do_not_disturb)
+        self.assertEqual(runtime.apply_activity(AgentActivity(kind="working"), 300), "working")
+
+    def test_leaving_re_arms_the_doze_timer(self) -> None:
+        runtime = PetRuntime()
+        runtime.set_do_not_disturb(True, now_ms=0)
+        runtime.set_do_not_disturb(False, now_ms=200)
+        self.assertEqual(runtime.tick(200 + SLEEP_AFTER_MS - 1, user_idle_ms=None), "idle")
+        self.assertEqual(runtime.tick(200 + SLEEP_AFTER_MS, user_idle_ms=None), "sleeping")
+
+    def test_turning_off_when_already_off_does_not_wake(self) -> None:
+        """Only a real exit from the mode should move the pet."""
+
+        runtime = PetRuntime()
+        runtime.apply_activity(AgentActivity(kind="working"), 0)
+        self.assertEqual(runtime.set_do_not_disturb(False, now_ms=100), "working")
+
+    def test_toggling_on_twice_does_not_restart_the_sleep_loop(self) -> None:
+        """Re-entering must not re-stamp the state clock.
+
+        `_enter` short-circuits on an unchanged state, which is what preserves
+        the animation phase. An unconditional stamp would restart the sleeping
+        loop mid-play with the suite still green.
+        """
+
+        runtime = PetRuntime()
+        runtime.set_do_not_disturb(True, now_ms=0)
+        self.assertEqual(runtime.set_do_not_disturb(True, now_ms=500), "sleeping")
+        self.assertEqual(runtime.state_elapsed_ms(500), 500)
+
+
 if __name__ == "__main__":
     unittest.main()

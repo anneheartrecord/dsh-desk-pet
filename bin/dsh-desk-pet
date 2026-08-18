@@ -77,7 +77,16 @@ if __name__ == "__main__":
     foreground = "--foreground" in argv
     argv = [arg for arg in argv if arg != "--foreground"]
     # Diagnostics print to the terminal and exit; detaching would hide them.
-    inspects = any(arg in ("--probe", "--inventory", "-h", "--help") for arg in argv)
+    # `--install-skin` must not detach either: the agent that invoked it needs
+    # the exit code and the message, and a backgrounded install would report
+    # success before it had validated a single frame.
+    # Split on '=' first: argparse accepts `--install-skin=mycat`, and matching
+    # the whole token missed it — the install then fell through to the normal
+    # launch path, which refuses to start when a pet is already running (the
+    # usual case) or detaches and reports success without installing anything.
+    inspects = any(
+        arg.split("=", 1)[0] in ("--probe", "--inventory", "--install-skin", "-h", "--help")
+        for arg in argv)
 
     if not foreground and not inspects:
         if bridge.live_pid() is not None:

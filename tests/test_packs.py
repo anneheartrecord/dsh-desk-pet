@@ -10,16 +10,24 @@ from __future__ import annotations
 import unittest
 
 from dsh_desk_pet import packs
-from dsh_desk_pet.skins import list_skins
+from dsh_desk_pet.skins import BUILTIN_SKINS, list_skins
 
 CORE_STATES = ("idle", "working", "waiting", "error")
 
 
 class InventoryTests(unittest.TestCase):
-    def test_every_catalogued_skin_has_frames_on_disk(self) -> None:
+    def test_every_shipped_skin_has_frames_on_disk(self) -> None:
+        """Iterates the builtin list, not the discovered catalog.
+
+        The catalog now includes anything a user installed, and measuring their
+        art against gates written for ours fails the suite for frames we did
+        not make — where the tempting repair is to loosen a gate that protects
+        the shipped set.
+        """
+
         inventory = packs.pack_inventory()
-        for skin in list_skins():
-            self.assertIn(skin.id, inventory, f"{skin.id} is in the catalog but has no pack")
+        for skin in BUILTIN_SKINS:
+            self.assertIn(skin.id, inventory, f"{skin.id} is shipped but has no pack")
 
     def test_every_skin_covers_the_core_states(self) -> None:
         inventory = packs.pack_inventory()

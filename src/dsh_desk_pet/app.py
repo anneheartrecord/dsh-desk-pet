@@ -20,17 +20,19 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import sys
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
-from . import bridge, nswindow, packs, prefs as prefs_store, sessions
+from . import bridge, nswindow, packs, prefs as prefs_store, sessions, skininstall, updates
 from .anim import motion_for
 from .mapper import AgentActivity
 from .observer import observe_activity
 from .runtime import PetRuntime
-from .skins import DEFAULT_SKIN_ID, get_skin, list_skins
+from .skins import DEFAULT_SKIN_ID, get_skin, is_known_skin, list_skins
 
 # Room around the sprite so the breath and hop never clip at the window edge.
 MARGIN = 22
@@ -51,6 +53,23 @@ DEBUG = os.environ.get("DSH_PET_DEBUG") == "1"
 
 def now_ms() -> int:
     return int(time.monotonic() * 1000)
+
+
+@dataclass(frozen=True)
+class MenuEntry:
+    """One row of the right-click menu, as data.
+
+    The window turns these into `NSMenuItem`s and decides nothing. Keeping the
+    shape here is what lets the menu's contents be asserted with no display,
+    the same trick `panel_rows` uses.
+    """
+
+    kind: str  # "item" | "separator" | "submenu"
+    title: str = ""
+    action: str = ""
+    checked: bool = False
+    enabled: bool = True
+    children: tuple["MenuEntry", ...] = ()
 
 
 class DeskPetApp:
@@ -79,6 +98,12 @@ class DeskPetApp:
         self._published_at_ms = -HEARTBEAT_MS
         self._topmost_at_ms = -TOPMOST_MS
         self._drawn_frame: Path | None = None
+        # The update checker replaces this with a real status in its own unit.
+        # Until then the menu shows the resting label rather than a state
+        # nothing can produce.
+        self.update_label = "Check for Updates"
+        self._update_checked_ms = -updates.CACHE_MS
+        self._update_thread: threading.Thread | None = None
         self._pointer_seen: tuple[float, float] | None = None
         self._pointer_moved_ms = 0
         self._pointer_checked_ms = -400
@@ -179,12 +204,200 @@ class DeskPetApp:
         hidden = max(0, total - len(shown))
         return rows, (f"{hidden} other session{'s' if hidden != 1 else ''}" if hidden else "")
 
+    def menu_model(self) -> tuple[MenuEntry, ...]:
+        """The right-click menu, in the order it is shown.
+
+        Every entry is enabled. The two visibility toggles are deliberately
+        independent: the reference implementation disables whichever one is
+        last, because its pet can be hidden and they are the only ways back to
+        the menu, but this pet cannot be hidden and right-click always reaches
+        it. Carrying that rule across would strand a Dock icon with no way to
+        remove it.
+        """
+
+        # Refreshed here because building the model is what happens just before
+        # the menu is shown. Refreshing on the click instead writes the answer
+        # into a menu that has already dismissed, so the user sees nothing.
+        self.refresh_update_label()
+        panel_open = self.panel is not None and self.panel.visible
+        skins = tuple(
+            MenuEntry(
+                kind="item",
+                title=skin.name,
+                action=f"skin:{skin.id}",
+                checked=skin.id == self.runtime.skin_id,
+            )
+            for skin in list_skins()
+        )
+        return (
+            # A checkmark, not a label swap: the other two toggles carry one, and
+            # an inverse verb alone never shows the mode as currently on.
+            MenuEntry(kind="item", title="Sleep (Do Not Disturb)", action="dnd",
+                      checked=self.runtime.do_not_disturb),
+            MenuEntry(kind="separator"),
+            # Named for what the click will do. A one-way Open would be the only
+            # item in the menu that can be picked to no effect.
+            MenuEntry(kind="item", title="Hide Dashboard" if panel_open else "Open Dashboard",
+                      action="dashboard"),
+            MenuEntry(kind="submenu", title="Skin", children=skins),
+            MenuEntry(kind="separator"),
+            MenuEntry(kind="item", title="Show in Menu Bar", action="menu_bar",
+                      checked=self.prefs.show_menu_bar),
+            MenuEntry(kind="item", title="Show in Dock", action="dock",
+                      checked=self.prefs.show_dock),
+            MenuEntry(kind="separator"),
+            MenuEntry(kind="item", title=self.update_label, action="updates"),
+            MenuEntry(kind="separator"),
+            MenuEntry(kind="item", title="Quit", action="quit"),
+        )
+
+    def can_handle_menu(self, action: str) -> bool:
+        """Is there a handler for this action key?
+
+        Exists so a test can prove every action the model offers is reachable.
+        An entry whose action nothing dispatches is a menu item that silently
+        does nothing when picked.
+        """
+
+        if action.startswith("skin:"):
+            return is_known_skin(action[len("skin:"):])
+        return action in ("dnd", "dashboard", "menu_bar", "dock", "updates", "quit")
+
+    def on_menu_action(self, action: str) -> None:
+        """Apply a picked menu entry.
+
+        Called from an Objective-C callback, so nothing here may raise: an
+        exception would unwind into AppKit, which has nowhere to put it. An
+        unknown action is ignored rather than trusted.
+        """
+
+        try:
+            if action.startswith("skin:"):
+                skin_id = action[len("skin:"):]
+                if is_known_skin(skin_id):
+                    self.select_skin(skin_id)
+                return
+            if action == "dnd":
+                self.runtime.set_do_not_disturb(
+                    not self.runtime.do_not_disturb, self.clock())
+                self._drawn_frame = None
+                self.render(self.clock())
+                return
+            if action == "dashboard":
+                # Named for what it does, so it is never a no-op.
+                if self.panel is not None and self.panel.visible:
+                    self.hide_panel()
+                else:
+                    self.show_panel()
+                return
+            if action in ("menu_bar", "dock"):
+                field = "show_menu_bar" if action == "menu_bar" else "show_dock"
+                setattr(self.prefs, field, not getattr(self.prefs, field))
+                self._save_prefs()
+                self._apply_visibility()
+                return
+            if action == "updates":
+                self.check_for_updates()
+                return
+            if action == "quit":
+                self.quit()
+        except Exception:
+            # Same reasoning as the trampolines in `nswindow`: stay alive.
+            pass
+
+    def _on_menu_tracking(self, open_: bool) -> None:
+        """Publish either side of the menu's modal loop.
+
+        The loop thread is blocked for as long as the menu is up, so the
+        heartbeat cannot run. Publishing immediately before and after bounds the
+        gap to the tracking duration rather than leaving a stamp that was
+        already up to two seconds old when the menu opened.
+        """
+
+        if not self.publish_state:
+            return
+        try:
+            bridge.publish(self.runtime.skin_id, self.runtime.state, self.clock())
+            self._published_at_ms = self.clock()
+        except OSError:
+            pass
+
+    def _apply_visibility(self) -> None:
+        """Push the two visibility prefs onto the window."""
+
+        if self.window is None:
+            return
+        try:
+            self.window.set_dock_visible(self.prefs.show_dock)
+            self.window.set_menu_bar_visible(self.prefs.show_menu_bar, self.menu_model())
+        except Exception:
+            # Called from a menu action, which runs inside an ObjC callback.
+            pass
+
+    def refresh_update_label(self, *, force: bool = False) -> None:
+        """Refresh the update label, off the frame loop.
+
+        Called when the menu is about to open rather than when the item is
+        picked, because an NSMenu dismisses on selection and a label written
+        afterwards is shown to nobody.
+
+        The fetch runs on a worker thread for the same reason the observer
+        does: a slow registry on the loop thread would freeze the animation and
+        stall the heartbeat, and past the staleness window a second launch
+        would decide this pet had died.
+        """
+
+        now = self.clock()
+        if not force and now - self._update_checked_ms < updates.CACHE_MS:
+            return
+        if self._update_thread is not None and self._update_thread.is_alive():
+            return  # a second menu open must not start a second fetch
+        self._update_checked_ms = now
+
+        def run() -> None:
+            published = updates.fetch_published(updates.package_name())
+            if published is None:
+                self.update_label = updates.unreachable_label()
+                return
+            self.update_label = updates.label(
+                updates.installed_version(), published,
+                upgrade_hint=f"dsh plugin --profile web add {updates.package_name()}",
+            )
+
+        self._update_thread = threading.Thread(
+            target=run, name="dsh-desk-pet-updates", daemon=True)
+        self._update_thread.start()
+
+    def check_for_updates(self) -> None:
+        """Picking the item forces a refresh; the answer lands on the next open."""
+
+        self.refresh_update_label(force=True)
+
+    def show_panel(self) -> None:
+        """Open the panel, or leave it open. Never closes it.
+
+        Split out of `toggle_panel` because the menu needs a one-way Open:
+        wiring the menu straight to the toggle would close the dashboard for
+        anyone who already had it open from a left-click.
+        """
+
+        if self.window is None:
+            return
+        self._present_panel()
+
+    def hide_panel(self) -> None:
+        if self.panel is not None and self.panel.visible:
+            self.panel.hide()
+
     def toggle_panel(self) -> None:
         if self.window is None:
             return
         if self.panel is not None and self.panel.visible:
             self.panel.hide()
             return
+        self._present_panel()
+
+    def _present_panel(self) -> None:
         if self.panel is None:
             self.panel = nswindow.PanelWindow()
             # Child of the pet, so AppKit moves the two together. Following the
@@ -355,13 +568,45 @@ class DeskPetApp:
             side, side, x=x, y=y,
             on_click=self._on_click,
             on_moved=self._on_moved,
-            on_menu=self.next_skin,
+            on_menu=self.menu_model,
+            on_menu_action=self.on_menu_action,
+            on_menu_tracking=self._on_menu_tracking,
             hit_test=self.is_on_pet,
         )
         self.render(self.clock())
 
+    def install_signal_handlers(self) -> None:
+        """Leave on SIGTERM the same way a menu Quit does.
+
+        `--stop` and the host plugin's teardown both send SIGTERM, which by
+        default kills the process outright — so `quit` never runs, the state
+        file is never cleared, and the next launch reads a file that still
+        looks fresh and refuses to start until the staleness window passes.
+
+        Only ever installed on the main thread, and never in a test.
+        """
+
+        def leave(_signum, _frame):
+            self._running = False
+
+        for name in ("SIGTERM", "SIGINT"):
+            number = getattr(signal, name, None)
+            if number is None:
+                continue
+            try:
+                signal.signal(number, leave)
+            except (ValueError, OSError):
+                # Not the main thread, or a platform without it. The loop still
+                # exits on its own conditions.
+                pass
+
     def run(self) -> int:
         self.build()
+        # Without this the prefs round-trip but never reach the screen: a pet
+        # restarted with the Dock icon saved on shows no icon while the menu
+        # renders the entry ticked.
+        self._apply_visibility()
+        self.install_signal_handlers()
         self._start_watcher()
         self._running = True
         last_poll = 0
@@ -451,6 +696,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reset", action="store_true", help="forget saved position, size and skin")
     parser.add_argument("--inventory", action="store_true", help="print the frame inventory and exit")
     parser.add_argument("--allow-second", action="store_true", help="start even if a pet is running")
+    parser.add_argument("--install-skin", metavar="ID",
+                        help="install a generated skin under this id and exit")
+    parser.add_argument("--from", dest="frames_from", metavar="DIR",
+                        help="directory of generated frames, used with --install-skin")
     args = parser.parse_args(argv)
 
     if args.inventory:
@@ -471,6 +720,25 @@ def main(argv: list[str] | None = None) -> int:
 
     runtime = PetRuntime(skin_id=saved.skin_id, state=args.state, now_ms=now_ms())  # type: ignore[arg-type]
     app = DeskPetApp(runtime, prefs=saved)
+
+    if args.install_skin or args.frames_from:
+        # Handled before the window or the instance guard: this is a one-shot
+        # command an agent runs, not a way to start the pet.
+        if not (args.install_skin and args.frames_from):
+            print("--install-skin and --from must be given together", file=sys.stderr)
+            return 2
+        try:
+            installed = skininstall.install(
+                Path(args.frames_from), args.install_skin,
+                generator="dsh-desk-pet skill")
+        except skininstall.InstallError as exc:
+            print(f"could not install skin: {exc}", file=sys.stderr)
+            return 1
+        saved.skin_id = args.install_skin
+        prefs_store.save(saved)
+        print(f"installed skin {args.install_skin!r} -> {installed}")
+        print("it is now the active skin; restart the pet to see it")
+        return 0
 
     if args.probe:
         app.publish_state = False

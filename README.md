@@ -54,7 +54,8 @@ dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
 
 
 **No dependencies.** It runs on the system `/usr/bin/python3` and talks to
-AppKit through `ctypes`. Nothing to install, nothing to build.
+AppKit through `ctypes`. Nothing to install, nothing to build — not even
+`ffmpeg`: decoding, keying and scaling frames is all standard library.
 
 ## Use
 
@@ -62,7 +63,8 @@ AppKit through `ctypes`. Nothing to install, nothing to build.
 |---|---|
 | **Drag** | Grab it anywhere. Where you leave it is where it starts next time. |
 | **Click** | Opens the session list — which DSH sessions exist, which is live, what it is doing. Click again to close. |
-| **Right-click** | Cycles skins. |
+| **Sleep (Do Not Disturb)** | Quiets the pet until you turn it off. The agent keeps working; the pet stops reacting. Petting it still gets a bounce. |
+| **Right-click** | Opens the menu: quiet mode, the session list, skins, where the pet shows up, updates, quit. |
 | **Stop** | `./bin/dsh-desk-pet --stop`, or stop `dsh web`. |
 
 It starts in the background and detaches from your terminal, so you can close
@@ -93,8 +95,20 @@ the same thing as a desk with nobody at it.
   <sub>DeepSeek Whale (default) · Blue Whale · Threadcore · Nautilus · Jellyfish</sub>
 </p>
 
-Right-click to cycle, or `--skin <id>`. Every skin has all six states at three
-frames each.
+Pick one from the Skin submenu, or start on it with `--skin <id>`. Every skin
+has all six states at three frames each.
+
+**Make your own from a picture.** Hand an image to your agent and ask it to make
+a desk pet skin. A skill ships with the plugin that turns one image into the
+eighteen poses a skin needs — six states, three frames each. Your own image tool
+does the generating, on your own credentials; nothing is sent anywhere by us.
+Your skins live in `~/.dsh-desk-pet/skins/`, outside the package, so upgrading
+the plugin does not delete them.
+
+The skill stops twice on the way: once after the first pose, so you can throw it
+away before paying for seventeen more, and once after the second, to check the
+character survived being redrawn. If a run half-fails it tells you which poses
+are missing and keeps the ones you already paid for.
 
 ## Options
 
@@ -180,7 +194,9 @@ appears in the cycle on its own, with no code change.
 - The window is a rectangle, so clicks landing on the transparent margin around
   the pet do not reach what is behind it. Per-pixel click-through is written but
   not yet wired up.
-- No menu yet — right-click cycles skins rather than opening one.
+- A settings window and mini mode are not in this version.
+- Nothing shows progress while a skin generates; your agent's own output is the
+  only feedback during the eighteen images.
 
 What is planned next, and what is deliberately not: [docs/ROADMAP.md](docs/ROADMAP.md).
 

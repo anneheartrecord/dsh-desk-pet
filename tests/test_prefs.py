@@ -42,6 +42,50 @@ class RoundTripTests(unittest.TestCase):
         path.write_text('{"skin_id":"nautilus","future_field":true}', encoding="utf-8")
         self.assertEqual(prefs_store.load(self.home).skin_id, "nautilus")
 
+    def test_visibility_fields_survive_a_round_trip(self) -> None:
+        """The regression this unit exists for.
+
+        `clamped()` rebuilt Prefs from four named fields, and `save()` writes
+        `asdict(prefs.clamped())`, so any field it did not name was dropped on
+        every save. A new preference could be set, and would silently never
+        persist.
+        """
+
+        self.assertTrue(prefs_store.save(Prefs(show_menu_bar=True, show_dock=True), self.home))
+        loaded = prefs_store.load(self.home)
+        self.assertTrue(loaded.show_menu_bar)
+        self.assertTrue(loaded.show_dock)
+
+    def test_clamp_preserves_fields_it_does_not_bound(self) -> None:
+        clamped = Prefs(skin_id="jellyfish", show_menu_bar=True, show_dock=True).clamped()
+        self.assertTrue(clamped.show_menu_bar)
+        self.assertTrue(clamped.show_dock)
+
+    def test_fresh_install_shows_neither_affordance(self) -> None:
+        """Matches today's accessory app exactly, so an upgrade changes nothing."""
+
+        fresh = prefs_store.load(self.home / "nope")
+        self.assertFalse(fresh.show_menu_bar)
+        self.assertFalse(fresh.show_dock)
+
+    def test_non_bool_visibility_falls_back_to_default(self) -> None:
+        """A hand-edited file must not put a string on the render path."""
+
+        path = prefs_store.prefs_path(self.home)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"show_dock":"yes","show_menu_bar":1}', encoding="utf-8")
+        loaded = prefs_store.load(self.home)
+        self.assertIs(loaded.show_dock, False)
+        self.assertIs(loaded.show_menu_bar, False)
+
+    def test_no_do_not_disturb_field_is_persisted(self) -> None:
+        """R3: DND is runtime state and must not survive a restart."""
+
+        prefs_store.save(Prefs(), self.home)
+        payload = prefs_store.prefs_path(self.home).read_text(encoding="utf-8")
+        self.assertNotIn("disturb", payload)
+        self.assertNotIn("dnd", payload)
+
     def test_save_leaves_no_temp_files(self) -> None:
         for _ in range(4):
             prefs_store.save(Prefs(x=1, y=2), self.home)

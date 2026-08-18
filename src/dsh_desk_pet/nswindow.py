@@ -44,6 +44,7 @@ ASSISTIVE_TECH_HIGH_LEVEL = 1500
 
 NSWindowStyleMaskBorderless = 0
 NSBackingStoreBuffered = 2
+NSApplicationActivationPolicyRegular = 0
 NSApplicationActivationPolicyAccessory = 1
 
 # Anything the runtime must not garbage-collect: ctypes callbacks handed to the
@@ -107,7 +108,9 @@ class PetWindow:
 
     * ``on_click()``   — pressed and released without moving
     * ``on_moved(x,y)``— finished a drag, in screen coordinates
-    * ``on_menu()``    — right-clicked (or control-clicked)
+    * ``on_menu()``    — right-clicked; returns the menu model to show
+    * ``on_menu_action(key)`` — an item in that menu was chosen
+    * ``on_menu_tracking(open)`` — the menu's modal loop started or ended
     * ``on_drag_start()`` — a drag just began; `dragging` stays True until it ends
     * ``hit_test(x,y)``— is this point on the character? Accepted and stored,
       but not wired to AppKit yet: see `_make_view_class` on why overriding
@@ -123,7 +126,9 @@ class PetWindow:
         y: int = 160,
         on_click: Callable[[], None] | None = None,
         on_moved: Callable[[int, int], None] | None = None,
-        on_menu: Callable[[], None] | None = None,
+        on_menu: Callable[[], object] | None = None,
+        on_menu_action: Callable[[str], None] | None = None,
+        on_menu_tracking: Callable[[bool], None] | None = None,
         hit_test: Callable[[float, float], bool] | None = None,
         on_drag_start: Callable[[], None] | None = None,
     ) -> None:
@@ -135,6 +140,22 @@ class PetWindow:
         self.on_click = on_click
         self.on_moved = on_moved
         self.on_menu = on_menu
+        self.on_menu_action = on_menu_action
+        self.on_menu_tracking = on_menu_tracking
+        # Tag <-> action key. Tags are scalars, so nothing here needs to keep
+        # an Objective-C object alive to survive the round trip.
+        #
+        # A tag is assigned to an action once and reused for every menu built
+        # afterwards. Numbering them per build looked simpler and was wrong:
+        # the status-bar menu and the right-click menu are separate NSMenus
+        # built at different moments, and a rebuild that renumbered — installing
+        # a skin changes how many entries precede the rest — left the older
+        # menu's items carrying tags that now meant something else. Picking
+        # Quit from the menu bar would have run whatever had taken tag 11.
+        self._menu_actions: dict[int, str] = {}
+        self._menu_tags: dict[str, int] = {}
+        self.menu_open = False
+        self._status_item = None
         self.hit_test = hit_test
         self.on_drag_start = on_drag_start
         # True while AppKit's drag loop owns the mouse. `performWindowDragWithEvent:`
@@ -153,6 +174,8 @@ class PetWindow:
         self._void_bool = rt.sig(None, ctypes.c_bool)
         self._void_long = rt.sig(None, ctypes.c_long)
         self._void_ulong = rt.sig(None, ctypes.c_ulong)
+        # Reads an NSInteger back — the menu item's tag.
+        self._long_msg = rt.sig(ctypes.c_long)
         self._double = rt.sig(ctypes.c_double)
         self._rect = rt.sig(NSRect)
         self._void_point = rt.sig(None, NSPoint)
@@ -205,6 +228,85 @@ class PetWindow:
         self._ptr_ptr(self._layer, rt.sel("setContentsGravity:"), self._nsstring("resizeAspect"))
         self._ptr_ptr(window, rt.sel("setContentView:"), view)
         self._ptr_ptr(window, rt.sel("orderFront:"), None)
+
+    def build_menu(self, model) -> object:
+        """Turn menu entries into an NSMenu.
+
+        Split from the popup so a test can assert the built menu's shape.
+        Popping it cannot be tested: `popUpContextMenu:` runs a modal tracking
+        loop that does not return until the menu is dismissed, so a test that
+        popped one would hang the suite rather than fail.
+        """
+
+        rt = self.rt
+        menu = self._ptr(self._ptr(rt.cls("NSMenu"), rt.sel("alloc")), rt.sel("init"))
+        # AppKit would otherwise ask a target to validate each item, and this
+        # app is an accessory that never becomes active — every item would
+        # render disabled.
+        self._void_bool(menu, rt.sel("setAutoenablesItems:"), False)
+        _KEEP.append(menu)
+
+        for entry in model:
+            if entry.kind == "separator":
+                item = self._ptr(rt.cls("NSMenuItem"), rt.sel("separatorItem"))
+                self._void_ptr(menu, rt.sel("addItem:"), item)
+                continue
+
+            item = self._ptr(self._ptr(rt.cls("NSMenuItem"), rt.sel("alloc")), rt.sel("init"))
+            self._void_ptr(item, rt.sel("setTitle:"), self._nsstring(entry.title))
+            self._void_bool(item, rt.sel("setEnabled:"), bool(entry.enabled))
+            _KEEP.append(item)
+
+            if entry.kind == "submenu":
+                sub = self.build_menu(entry.children)
+                self._void_ptr(item, rt.sel("setSubmenu:"), sub)
+            else:
+                tag = self._tag_for(entry.action)
+                self._void_long(item, rt.sel("setTag:"), tag)
+                self._void_ptr(item, rt.sel("setTarget:"), self._view)
+                self._void_ptr(item, rt.sel("setAction:"), rt.sel("petMenuPick:"))
+                self._void_long(item, rt.sel("setState:"), 1 if entry.checked else 0)
+
+            self._void_ptr(menu, rt.sel("addItem:"), item)
+        return menu
+
+    def _tag_for(self, action: str) -> int:
+        tag = self._menu_tags.get(action)
+        if tag is None:
+            tag = len(self._menu_tags) + 1
+            self._menu_tags[action] = tag
+            self._menu_actions[tag] = action
+        return tag
+
+    def _popup_menu(self, model, event) -> None:
+        rt = self.rt
+        menu = self.build_menu(model)
+        self.menu_open = True
+        # Menu tracking runs its own modal loop, so the frame loop — and with it
+        # the heartbeat — stops for as long as the menu is up. The published
+        # state goes stale after six seconds, and browsing a skin submenu for
+        # longer than that is ordinary; a second DSH profile launching in that
+        # window would decide no pet was running and start another one.
+        if self.on_menu_tracking:
+            try:
+                self.on_menu_tracking(True)
+            except Exception:
+                pass
+        try:
+            # All-pointer selector on purpose. The positioning variant takes an
+            # NSPoint by value, and a wrong struct encoding on arm64 does not
+            # raise — it returns garbage, which is what made hitTest: silently
+            # inert and forced its removal.
+            popup = rt.sig(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+            popup(rt.cls("NSMenu"), rt.sel("popUpContextMenu:withEvent:forView:"),
+                  menu, event, self._view)
+        finally:
+            self.menu_open = False
+            if self.on_menu_tracking:
+                try:
+                    self.on_menu_tracking(False)
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------- internals
 
@@ -272,8 +374,28 @@ class PetWindow:
 
         def _right(_self, _cmd, event):
             try:
-                if self.on_menu:
-                    self.on_menu()
+                if not self.on_menu:
+                    return
+                model = self.on_menu()
+                if not model:
+                    return
+                self._popup_menu(model, event)
+            except Exception:
+                pass
+
+        def _menu_pick(_self, _cmd, sender):
+            """An item was chosen. The tag carries which one.
+
+            `setTag:` takes a scalar, so it needs no object lifetime management
+            and no struct encoding — the two things that have already cost this
+            file a working feature.
+            """
+
+            try:
+                tag = self._long_msg(sender, self.rt.sel("tag"))
+                action = self._menu_actions.get(int(tag))
+                if action and self.on_menu_action:
+                    self.on_menu_action(action)
             except Exception:
                 pass
 
@@ -294,6 +416,7 @@ class PetWindow:
         methods = (
             ("mouseDown:", _down, b"v@:@", void_id),
             ("rightMouseDown:", _right, b"v@:@", void_id),
+            ("petMenuPick:", _menu_pick, b"v@:@", void_id),
             ("acceptsFirstMouse:", _accepts_first_mouse, b"B@:@", bool_id),
         )
         for selector, fn, types, proto in methods:
@@ -344,6 +467,60 @@ class PetWindow:
         self._void_long(self._window, self.rt.sel("setLevel:"), ASSISTIVE_TECH_HIGH_LEVEL)
         self._void_ulong(self._window, self.rt.sel("setCollectionBehavior:"),
                          CAN_JOIN_ALL_SPACES | STATIONARY | FULLSCREEN_AUXILIARY)
+
+    def set_dock_visible(self, visible: bool) -> None:
+        """Show or hide the Dock icon by changing the activation policy.
+
+        Re-applies level and collection behaviour immediately afterwards.
+        Changing the policy resets `NSWindowCollectionBehavior`, which is the
+        flag that keeps the pet above fullscreen Spaces — without this the pet
+        silently drops behind a fullscreen app the first time the Dock icon is
+        toggled.
+        """
+
+        rt = self.rt
+        app = self._ptr(rt.cls("NSApplication"), rt.sel("sharedApplication"))
+        policy = (NSApplicationActivationPolicyRegular if visible
+                  else NSApplicationActivationPolicyAccessory)
+        self._void_long(app, rt.sel("setActivationPolicy:"), policy)
+        self.float_above_fullscreen()
+
+    def set_menu_bar_visible(self, visible: bool, model=None) -> None:
+        """Add or remove the status-bar item.
+
+        A second way into the menu for anyone who never discovers that
+        right-clicking a 200px window does anything.
+        """
+
+        rt = self.rt
+        if not visible:
+            if self._status_item is not None:
+                bar = self._ptr(rt.cls("NSStatusBar"), rt.sel("systemStatusBar"))
+                self._void_ptr(bar, rt.sel("removeStatusItem:"), self._status_item)
+                self._status_item = None
+            return
+        if self._status_item is not None:
+            # Already there: refresh its menu rather than returning. Built once
+            # and left alone, its checkmarks and skin list froze at whatever
+            # they were when the toggle was flipped on.
+            if model is not None:
+                self._void_ptr(self._status_item, rt.sel("setMenu:"), self.build_menu(model))
+            return
+        bar = self._ptr(rt.cls("NSStatusBar"), rt.sel("systemStatusBar"))
+        # -1 is NSVariableStatusItemLength.
+        make = rt.sig(ctypes.c_void_p, ctypes.c_double)
+        item = make(bar, rt.sel("statusItemWithLength:"), -1.0)
+        if not item:
+            return
+        # Held from Python: the status bar does not own it, and a collected
+        # item vanishes from the menu bar mid-session.
+        _KEEP.append(item)
+        self._status_item = item
+        button = self._ptr(item, rt.sel("button"))
+        if button:
+            self._void_ptr(button, rt.sel("setTitle:"), self._nsstring("\u25cf"))
+        if model is not None:
+            self._void_ptr(item, rt.sel("setMenu:"), self.build_menu(model))
 
     def pump(self, seconds: float) -> None:
         """Deliver AppKit events for a while. This is the frame tick.
