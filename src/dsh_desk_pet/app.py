@@ -31,7 +31,7 @@ from .anim import motion_for
 from .mapper import AgentActivity
 from .observer import observe_activity
 from .runtime import PetRuntime
-from .skins import DEFAULT_SKIN_ID, get_skin, list_skins
+from .skins import DEFAULT_SKIN_ID, get_skin, is_known_skin, list_skins
 
 # Room around the sprite so the breath and hop never clip at the window edge.
 MARGIN = 22
@@ -244,12 +244,91 @@ class DeskPetApp:
             MenuEntry(kind="item", title="Quit", action="quit"),
         )
 
+    def can_handle_menu(self, action: str) -> bool:
+        """Is there a handler for this action key?
+
+        Exists so a test can prove every action the model offers is reachable.
+        An entry whose action nothing dispatches is a menu item that silently
+        does nothing when picked.
+        """
+
+        if action.startswith("skin:"):
+            return is_known_skin(action[len("skin:"):])
+        return action in ("dnd", "dashboard", "menu_bar", "dock", "updates", "quit")
+
+    def on_menu_action(self, action: str) -> None:
+        """Apply a picked menu entry.
+
+        Called from an Objective-C callback, so nothing here may raise: an
+        exception would unwind into AppKit, which has nowhere to put it. An
+        unknown action is ignored rather than trusted.
+        """
+
+        try:
+            if action.startswith("skin:"):
+                skin_id = action[len("skin:"):]
+                if is_known_skin(skin_id):
+                    self.select_skin(skin_id)
+                return
+            if action == "dnd":
+                self.runtime.set_do_not_disturb(
+                    not self.runtime.do_not_disturb, self.clock())
+                self._drawn_frame = None
+                self.render(self.clock())
+                return
+            if action == "dashboard":
+                # Named for what it does, so it is never a no-op.
+                if self.panel is not None and self.panel.visible:
+                    self.hide_panel()
+                else:
+                    self.show_panel()
+                return
+            if action in ("menu_bar", "dock"):
+                field = "show_menu_bar" if action == "menu_bar" else "show_dock"
+                setattr(self.prefs, field, not getattr(self.prefs, field))
+                self._save_prefs()
+                self._apply_visibility()
+                return
+            if action == "updates":
+                self.check_for_updates()
+                return
+            if action == "quit":
+                self.quit()
+        except Exception:
+            # Same reasoning as the trampolines in `nswindow`: stay alive.
+            pass
+
+    def _apply_visibility(self) -> None:
+        """Hook for the Dock and menu-bar work; a no-op until that unit lands."""
+
+    def check_for_updates(self) -> None:
+        """Hook for the update checker; a no-op until that unit lands."""
+
+    def show_panel(self) -> None:
+        """Open the panel, or leave it open. Never closes it.
+
+        Split out of `toggle_panel` because the menu needs a one-way Open:
+        wiring the menu straight to the toggle would close the dashboard for
+        anyone who already had it open from a left-click.
+        """
+
+        if self.window is None:
+            return
+        self._present_panel()
+
+    def hide_panel(self) -> None:
+        if self.panel is not None and self.panel.visible:
+            self.panel.hide()
+
     def toggle_panel(self) -> None:
         if self.window is None:
             return
         if self.panel is not None and self.panel.visible:
             self.panel.hide()
             return
+        self._present_panel()
+
+    def _present_panel(self) -> None:
         if self.panel is None:
             self.panel = nswindow.PanelWindow()
             # Child of the pet, so AppKit moves the two together. Following the

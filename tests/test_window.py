@@ -201,6 +201,106 @@ class MenuModelTests(unittest.TestCase):
                     self.assertEqual(entry.action, "")
 
 
+class MenuActionTests(unittest.TestCase):
+    """Dispatching a picked entry. The window knows the action key and nothing else."""
+
+    def setUp(self) -> None:
+        self.clock = [0]
+        self.app = _app(self.clock)
+
+    def test_every_action_the_model_offers_can_be_dispatched(self) -> None:
+        """An action string with no handler is a menu item that does nothing."""
+
+        actions = []
+        for entry in self.app.menu_model():
+            if entry.kind == "item":
+                actions.append(entry.action)
+            for child in entry.children:
+                actions.append(child.action)
+        for action in actions:
+            with self.subTest(action=action):
+                self.assertTrue(self.app.can_handle_menu(action), f"no handler for {action}")
+
+    def test_sleep_action_toggles_the_mode_both_ways(self) -> None:
+        self.app.on_menu_action("dnd")
+        self.assertTrue(self.app.runtime.do_not_disturb)
+        self.app.on_menu_action("dnd")
+        self.assertFalse(self.app.runtime.do_not_disturb)
+
+    def test_skin_action_selects_that_skin(self) -> None:
+        self.app.on_menu_action("skin:nautilus")
+        self.assertEqual(self.app.runtime.skin_id, "nautilus")
+
+    def test_visibility_actions_toggle_and_persist_the_pref(self) -> None:
+        self.app.on_menu_action("menu_bar")
+        self.assertTrue(self.app.prefs.show_menu_bar)
+        self.app.on_menu_action("dock")
+        self.assertTrue(self.app.prefs.show_dock)
+        self.app.on_menu_action("dock")
+        self.assertFalse(self.app.prefs.show_dock)
+
+    def test_dashboard_action_shows_the_panel_and_repeating_it_does_not_close(self) -> None:
+        """The regression the plan named: reusing the toggle would make the
+        menu item close the dashboard for anyone who already had it open."""
+
+        calls = []
+        self.app.show_panel = lambda: calls.append("show")  # type: ignore[method-assign]
+        self.app.on_menu_action("dashboard")
+        self.app.on_menu_action("dashboard")
+        self.assertEqual(calls, ["show", "show"])
+
+    def test_dashboard_action_hides_when_already_open(self) -> None:
+        class _Panel:
+            visible = True
+
+        self.app.panel = _Panel()
+        hidden = []
+        self.app.hide_panel = lambda: hidden.append("hide")  # type: ignore[method-assign]
+        self.app.on_menu_action("dashboard")
+        self.assertEqual(hidden, ["hide"])
+
+    def test_quit_stops_the_run_loop(self) -> None:
+        self.app._running = True
+        self.app.on_menu_action("quit")
+        self.assertFalse(self.app._running)
+
+    def test_unknown_action_is_ignored_rather_than_raising(self) -> None:
+        """This runs inside an Objective-C callback, where a raise unwinds into
+        AppKit with nothing to catch it."""
+
+        self.app.on_menu_action("nonsense")
+        self.app.on_menu_action("skin:does-not-exist")
+
+
+class PanelShowHideTests(unittest.TestCase):
+    """`toggle_panel` split so the menu has a one-way Open."""
+
+    def test_show_is_idempotent_and_toggle_still_alternates(self) -> None:
+        clock = [0]
+        app = _app(clock)
+        seen = []
+        app._present_panel = lambda: seen.append("present")  # type: ignore[method-assign]
+        # `show_panel` needs a pet window to anchor against; the panel is a
+        # child of it. Stubbed rather than created, so this stays headless.
+        app.window = object()  # type: ignore[assignment]
+
+        class _Panel:
+            visible = False
+
+        app.panel = _Panel()
+        app.show_panel()
+        app.show_panel()
+        self.assertEqual(seen, ["present", "present"], "Open must never close")
+
+        app.toggle_panel()
+        self.assertEqual(seen, ["present", "present", "present"])
+        app.panel.visible = True
+        hidden = []
+        app.panel.hide = lambda: hidden.append("hide")
+        app.toggle_panel()
+        self.assertEqual(hidden, ["hide"], "toggle still alternates")
+
+
 class ClickUnderDoNotDisturbTests(unittest.TestCase):
     """The one do-not-disturb guarantee that does not live in the state machine.
 
