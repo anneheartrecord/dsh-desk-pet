@@ -1,9 +1,9 @@
 {
   "name": "deepseek-desk-pet",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": false,
   "type": "module",
-  "description": "Always-on-top DeepSeek Harness desk pet. Shows what your agent is doing: working, waiting, finished, failed. Five skins, no dependencies.",
+  "description": "Always-on-top DeepSeek Harness desk pet with a native menu and DIY skins. Shows what your agent is doing: working, waiting, finished, failed. Five skins, or make your own from one image. No dependencies.",
   "license": "MIT",
   "repository": {
     "type": "git",
