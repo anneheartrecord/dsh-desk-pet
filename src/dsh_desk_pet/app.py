@@ -27,7 +27,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import bridge, nswindow, packs, prefs as prefs_store, sessions, updates
+from . import bridge, nswindow, packs, prefs as prefs_store, sessions, skininstall, updates
 from .anim import motion_for
 from .mapper import AgentActivity
 from .observer import observe_activity
@@ -661,6 +661,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reset", action="store_true", help="forget saved position, size and skin")
     parser.add_argument("--inventory", action="store_true", help="print the frame inventory and exit")
     parser.add_argument("--allow-second", action="store_true", help="start even if a pet is running")
+    parser.add_argument("--install-skin", metavar="ID",
+                        help="install a generated skin under this id and exit")
+    parser.add_argument("--from", dest="frames_from", metavar="DIR",
+                        help="directory of generated frames, used with --install-skin")
     args = parser.parse_args(argv)
 
     if args.inventory:
@@ -681,6 +685,22 @@ def main(argv: list[str] | None = None) -> int:
 
     runtime = PetRuntime(skin_id=saved.skin_id, state=args.state, now_ms=now_ms())  # type: ignore[arg-type]
     app = DeskPetApp(runtime, prefs=saved)
+
+    if args.install_skin or args.frames_from:
+        # Handled before the window or the instance guard: this is a one-shot
+        # command an agent runs, not a way to start the pet.
+        if not (args.install_skin and args.frames_from):
+            print("--install-skin and --from must be given together", file=sys.stderr)
+            return 2
+        try:
+            installed = skininstall.install(
+                Path(args.frames_from), args.install_skin,
+                generator="dsh-desk-pet skill")
+        except skininstall.InstallError as exc:
+            print(f"could not install skin: {exc}", file=sys.stderr)
+            return 1
+        print(f"installed skin {args.install_skin!r} -> {installed}")
+        return 0
 
     if args.probe:
         app.publish_state = False

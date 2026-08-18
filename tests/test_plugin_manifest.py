@@ -152,6 +152,89 @@ class ShippedSurfaceTests(unittest.TestCase):
         self.assertTrue((ROOT / "assets" / "web" / "deepseek" / "idle" / "00.png").is_file())
 
 
+class SkinSkillTests(unittest.TestCase):
+    """The shipped skill: its contract, and whether anything can find it."""
+
+    def setUp(self) -> None:
+        self.skill = _read("skills", "dsh-pet-skin", "SKILL.md")
+
+    def test_frontmatter_is_the_shape_dsh_requires(self) -> None:
+        """A malformed field is dropped with only a warning, so the skill
+        would simply never appear."""
+
+        block = self.skill.split("---")[1]
+        fields = dict(
+            line.split(":", 1) for line in block.strip().splitlines() if ":" in line)
+        self.assertEqual(fields["name"].strip(), "dsh-pet-skin")
+        self.assertTrue(fields["description"].strip())
+
+    def test_declares_all_six_states_and_three_frames_each(self) -> None:
+        for state in ("idle", "working", "waiting", "error", "happy", "sleeping"):
+            self.assertIn(state, self.skill)
+        self.assertIn("eighteen", self.skill.lower())
+
+    def test_asks_for_a_magenta_plate_and_not_transparency(self) -> None:
+        """No backend this project has used returns an alpha channel.
+
+        Asking for transparency yields an opaque frame the installer refuses.
+        """
+
+        self.assertIn("#FF00FF", self.skill)
+        self.assertIn("Do not ask the model for a transparent background", self.skill)
+
+    def test_orders_the_waves_so_identity_survives(self) -> None:
+        self.assertIn("that state's own first frame", self.skill)
+        self.assertIn("never from the base pose", self.skill)
+
+    def test_gates_on_a_two_frame_identity_check(self) -> None:
+        """Sixteen strangers is the failure this prevents."""
+
+        self.assertIn("Stop and show the user both frames", self.skill)
+
+    def test_states_the_cost_before_generating(self) -> None:
+        self.assertIn("eighteen image", self.skill.lower())
+
+    def test_states_the_tool_contract(self) -> None:
+        self.assertIn("Image-to-image with an input reference", self.skill)
+
+    def test_never_asks_for_a_credential(self) -> None:
+        lowered = self.skill.lower()
+        self.assertIn("never ask the user for an api key", lowered)
+        for leak in ("api_key", "api-key=", "authorization:", "bearer "):
+            self.assertNotIn(leak, lowered, f"the skill mentions {leak!r}")
+
+    def test_installs_through_the_launcher_not_by_writing_frames(self) -> None:
+        """Writing frames directly is the shorter path for an agent holding
+        eighteen files, and it produces the unvalidated skin the installer
+        exists to prevent."""
+
+        self.assertIn("--install-skin", self.skill)
+        self.assertIn("Never write into the skin root directly", self.skill)
+
+    def test_explains_a_partial_failure(self) -> None:
+        self.assertIn("keep the frames", self.skill)
+
+
+class SkillPackagingTests(unittest.TestCase):
+    def test_the_skill_ships(self) -> None:
+        pkg = json.loads(_read("package.json"))
+        self.assertIn("skills", pkg["files"])
+        self.assertTrue((ROOT / "skills" / "dsh-pet-skin" / "SKILL.md").is_file())
+
+    def test_the_host_plugin_registers_the_skill_directory(self) -> None:
+        """A path inside node_modules matches no DSH skill root, so shipping
+        the file alone puts it where nothing will look."""
+
+        plugin = _read("plugin", "index.mjs")
+        self.assertIn("SKILLS_DIR", plugin)
+        self.assertIn("registerSkillRoot", plugin)
+
+    def test_build_inputs_still_do_not_ship(self) -> None:
+        pkg = json.loads(_read("package.json"))
+        self.assertNotIn("assets/source", pkg["files"])
+        self.assertNotIn("assets", pkg["files"])
+
+
 @unittest.skipUnless(NODE, "node not on PATH")
 class ParseTests(unittest.TestCase):
     """The plugin is loaded by DSH's Node process, so a syntax error there is

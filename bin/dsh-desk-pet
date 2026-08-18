@@ -77,7 +77,11 @@ if __name__ == "__main__":
     foreground = "--foreground" in argv
     argv = [arg for arg in argv if arg != "--foreground"]
     # Diagnostics print to the terminal and exit; detaching would hide them.
-    inspects = any(arg in ("--probe", "--inventory", "-h", "--help") for arg in argv)
+    # `--install-skin` must not detach either: the agent that invoked it needs
+    # the exit code and the message, and a backgrounded install would report
+    # success before it had validated a single frame.
+    inspects = any(
+        arg in ("--probe", "--inventory", "--install-skin", "-h", "--help") for arg in argv)
 
     if not foreground and not inspects:
         if bridge.live_pid() is not None:

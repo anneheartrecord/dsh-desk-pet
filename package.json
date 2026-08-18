@@ -29,6 +29,7 @@
     "assets/web",
     "bin",
     "plugin",
+    "skills",
     "src",
     "cordis.patch.yml",
     "docs/media",

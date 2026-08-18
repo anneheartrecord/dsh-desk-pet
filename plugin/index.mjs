@@ -18,6 +18,7 @@
  * The pet belongs to a session that already has a UI.
  */
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -26,6 +27,35 @@ export const inject = ['webServer']
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const LAUNCHER = path.join(ROOT, 'bin', 'dsh-desk-pet')
+const SKILLS_DIR = path.join(ROOT, 'skills')
+
+/**
+ * Make the shipped skill reachable.
+ *
+ * DSH finds skills one level deep under a fixed set of roots, and a path inside
+ * `node_modules` is none of them — so shipping `skills/` in the package file
+ * list puts the file on disk where nothing will ever look at it. Registering the
+ * directory is what turns it from a file into a skill.
+ *
+ * Best effort on purpose: the pet is the product, and a host that exposes no
+ * skill-root hook should still get its pet rather than failing to load.
+ */
+function registerSkillRoot(ctx) {
+  if (!existsSync(SKILLS_DIR)) return () => {}
+  for (const register of [ctx.skills?.addRoot, ctx.skills?.register, ctx.addSkillRoot]) {
+    if (typeof register !== 'function') continue
+    try {
+      const off = register.call(ctx.skills ?? ctx, SKILLS_DIR)
+      return typeof off === 'function' ? off : () => {}
+    } catch (err) {
+      ctx.logger?.warn?.(`[dsh-desk-pet] could not register the skill directory: ${err.message}`)
+      return () => {}
+    }
+  }
+  ctx.logger?.info?.(
+    `[dsh-desk-pet] this host exposes no skill-root hook; to use the skin skill, link ${SKILLS_DIR} into a DSH skills directory`)
+  return () => {}
+}
 
 export function apply(ctx) {
   const python = process.platform === 'darwin' ? '/usr/bin/python3' : 'python3'
@@ -60,5 +90,10 @@ export function apply(ctx) {
     child.kill()
   }
 
-  ctx.effect(() => stop)
+  const unregisterSkills = registerSkillRoot(ctx)
+
+  ctx.effect(() => () => {
+    unregisterSkills()
+    stop()
+  })
 }
