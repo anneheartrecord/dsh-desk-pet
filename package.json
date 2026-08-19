@@ -10,7 +10,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/anneheartrecord/dsh-desk-pet.git"
+    "url": "git+https://github.com/anneheartrecord/dsh-desk-pet.git"
   },
   "keywords": [
     "dsh",
@@ -19,7 +19,7 @@
     "desktop-pet"
   ],
   "bin": {
-    "dsh-desk-pet": "./bin/dsh-desk-pet"
+    "dsh-desk-pet": "bin/dsh-desk-pet"
   },
   "main": "./plugin/index.mjs",
   "exports": {
