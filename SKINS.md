@@ -40,7 +40,9 @@
 
 > 让你的 agent 帮你跑这条更省事：它知道插件装在哪。
 
-**二、提一个 PR**，只做两件事：
+**二、投稿**。不想提 PR 的，直接开一个 [皮肤投稿 issue](https://github.com/anneheartrecord/dsh-desk-pet/issues/new?template=skin-submission.yml) 把图拖进去就行，我来登记。
+
+想自己提 PR 的话，只做两件事：
 
 1. 把预览图放进 `docs/gallery/<你的皮肤id>.png`
 2. 在下面的表格末尾加一行
@@ -111,8 +113,7 @@ The launcher lives inside the installed package, not on your PATH, and this flag
 It writes `skin-<id>.png` in the current directory. Asking your agent to run it
 is easier — it knows where the package landed.
 
-**2. Open a PR** that does exactly two things: put the image at
-`docs/gallery/<id>.png`, and append one row to the table above.
+**2. Submit.** Easiest is a [skin submission issue](https://github.com/anneheartrecord/dsh-desk-pet/issues/new?template=skin-submission.yml) — drag the image in and I will register it. Or open a PR that does exactly two things: put the image at `docs/gallery/<id>.png`, and append one row to the table above.
 
 ### Rules
 

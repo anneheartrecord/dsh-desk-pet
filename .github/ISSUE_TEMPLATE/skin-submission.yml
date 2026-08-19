@@ -1,0 +1,77 @@
+name: 投一套皮肤 / Submit a skin
+description: 把你从自己照片做出来的皮肤放进画廊。不会提 PR 也可以走这里。
+title: "[skin] "
+labels: ["skin-submission"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        投稿只要一张预览图，**不要上传帧素材**——十八张 PNG 会撑爆仓库，
+        而且那是从你的照片生成的东西，该由你决定它去哪里。
+
+        先用一条命令生成预览图（需要 0.3.0 或更新）：
+
+        ```bash
+        ~/.dsh/profiles/web/node_modules/deepseek-desk-pet/bin/dsh-desk-pet --skin-sheet <你的皮肤id>
+        ```
+
+        它会在当前目录写出 `skin-<id>.png`，把那张图拖进下面的输入框即可。
+
+        ---
+
+        A preview image is the whole submission — **do not upload frames**.
+        Generate it with `--skin-sheet <id>` and drag the resulting PNG in below.
+
+  - type: input
+    id: name
+    attributes:
+      label: 皮肤名 / Skin name
+      description: 展示用的名字，中英文都行。
+      placeholder: 我家的橘猫
+    validations:
+      required: true
+
+  - type: input
+    id: skin_id
+    attributes:
+      label: 皮肤 id / Skin id
+      description: 小写字母或数字开头，只含小写字母、数字、`-`、`_`，最长 32 位。
+      placeholder: my-orange-cat
+    validations:
+      required: true
+
+  - type: textarea
+    id: preview
+    attributes:
+      label: 预览图 / Preview
+      description: 直接把 `--skin-sheet` 生成的那张 PNG 拖进来。
+      placeholder: 把图拖到这里
+    validations:
+      required: true
+
+  - type: input
+    id: blurb
+    attributes:
+      label: 一句话 / One line
+      description: 可留空。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: rights
+    attributes:
+      label: 权利确认 / Rights
+      description: 画廊是公开的，这一条不能跳过。
+      options:
+        - label: 这套皮肤是从我自己拥有或有权分发的图生成的（自己的宠物、自己画的、自己的形象），不是他人照片、版权角色或真人肖像。
+          required: true
+
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: 自检 / Checks
+      options:
+        - label: 预览图是 `--skin-sheet` 出的，没有自己重新拼过（统一底板才能横向比较）。
+          required: true
+        - label: 一个 issue 只投一套皮肤。
+          required: true
