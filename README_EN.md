@@ -109,12 +109,50 @@ the same thing as a desk with nobody at it.
 <p align="center">
   <img src="docs/media/skins.png" width="600" alt="Five skins">
 </p>
-<p align="center">
-  <sub>DeepSeek Whale (default) · Blue Whale · Threadcore · Nautilus · Jellyfish</sub>
-</p>
 
 Pick one from the Skin submenu, or start on it with `--skin <id>`. Every skin
 has all six states at three frames each.
+
+| Skin | In motion |
+|---|---|
+| **DeepSeek Whale (default)** | <img src="docs/media/loop-deepseek.gif" width="120" alt="deepseek"> |
+| **Blue Whale** | <img src="docs/media/loop-bluewhale.gif" width="120" alt="bluewhale"> |
+| **Threadcore** | <img src="docs/media/loop-threadcore.gif" width="120" alt="threadcore"> |
+| **Nautilus** | <img src="docs/media/loop-nautilus.gif" width="120" alt="nautilus"> |
+| **Jellyfish** | <img src="docs/media/loop-jellyfish.gif" width="120" alt="jellyfish"> |
+
+> The loops play at the real cadence out of `manifest.json`: idle is 2.4 seconds
+> of stillness and then a blink measured in tens of milliseconds. Give the three
+> frames equal time and the pet reads as twitching rather than breathing.
+
+### Every skin, all six states
+
+In order: idle · working · waiting · error · happy · sleeping
+
+<p align="center">
+  <img src="docs/media/skin-deepseek.png" width="820" alt="deepseek">
+</p>
+<p align="center"><sub>DeepSeek Whale (default)</sub></p>
+
+<p align="center">
+  <img src="docs/media/skin-bluewhale.png" width="820" alt="bluewhale">
+</p>
+<p align="center"><sub>Blue Whale</sub></p>
+
+<p align="center">
+  <img src="docs/media/skin-threadcore.png" width="820" alt="threadcore">
+</p>
+<p align="center"><sub>Threadcore</sub></p>
+
+<p align="center">
+  <img src="docs/media/skin-nautilus.png" width="820" alt="nautilus">
+</p>
+<p align="center"><sub>Nautilus</sub></p>
+
+<p align="center">
+  <img src="docs/media/skin-jellyfish.png" width="820" alt="jellyfish">
+</p>
+<p align="center"><sub>Jellyfish</sub></p>
 
 **Make your own from a picture.** Hand an image to your agent and ask it to make
 a desk pet skin. A skill ships with the plugin that turns one image into the

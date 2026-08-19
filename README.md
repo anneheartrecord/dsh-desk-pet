@@ -102,11 +102,48 @@ dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
 <p align="center">
   <img src="docs/media/skins.png" width="600" alt="五套皮肤">
 </p>
-<p align="center">
-  <sub>深索鲸（默认）· 蓝鲸 · 线核 · 鹦鹉螺 · 水母</sub>
-</p>
 
 在菜单的皮肤子菜单里挑，或者用 `--skin <id>` 指定启动皮肤。每套皮肤六个状态齐全，每个状态三帧。
+
+| 皮肤 | 动起来 |
+|---|---|
+| **深索鲸（默认）** | <img src="docs/media/loop-deepseek.gif" width="120" alt="deepseek"> |
+| **蓝鲸** | <img src="docs/media/loop-bluewhale.gif" width="120" alt="bluewhale"> |
+| **线核** | <img src="docs/media/loop-threadcore.gif" width="120" alt="threadcore"> |
+| **鹦鹉螺** | <img src="docs/media/loop-nautilus.gif" width="120" alt="nautilus"> |
+| **水母** | <img src="docs/media/loop-jellyfish.gif" width="120" alt="jellyfish"> |
+
+> 动图按 `manifest.json` 里的真实时间轴播放：空闲是 2.4 秒的静止，然后一次几十毫秒的眨眼。
+> 三帧均分的话，宠物看起来是在抽搐，而不是在呼吸。
+
+### 每套皮肤的六个状态
+
+顺序：空闲 · 干活 · 等你 · 报错 · 开心 · 睡着
+
+<p align="center">
+  <img src="docs/media/skin-deepseek.png" width="820" alt="deepseek">
+</p>
+<p align="center"><sub>深索鲸（默认）</sub></p>
+
+<p align="center">
+  <img src="docs/media/skin-bluewhale.png" width="820" alt="bluewhale">
+</p>
+<p align="center"><sub>蓝鲸</sub></p>
+
+<p align="center">
+  <img src="docs/media/skin-threadcore.png" width="820" alt="threadcore">
+</p>
+<p align="center"><sub>线核</sub></p>
+
+<p align="center">
+  <img src="docs/media/skin-nautilus.png" width="820" alt="nautilus">
+</p>
+<p align="center"><sub>鹦鹉螺</sub></p>
+
+<p align="center">
+  <img src="docs/media/skin-jellyfish.png" width="820" alt="jellyfish">
+</p>
+<p align="center"><sub>水母</sub></p>
 
 **用一张图做你自己的皮肤。** 把一张图交给你的 agent，让它做一套桌宠皮肤。插件里带了一个 skill，负责把一张图扩写成一套皮肤需要的十八个姿势（六个状态，每个三帧）。真正生图的是你自己的工具、烧的是你自己的额度，我们不往任何地方发送东西。做好的皮肤放在 `~/.dsh-desk-pet/skins/`，在安装包之外，所以升级插件不会把它们删掉。
 
