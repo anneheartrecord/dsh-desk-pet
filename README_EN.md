@@ -92,6 +92,20 @@ the window you launched it from.
 
 Driven by your local DSH. Nothing to configure.
 
+```mermaid
+stateDiagram-v2
+    [*] --> idle
+    idle --> working: DSH starts a run
+    working --> waiting: blocked on a confirmation
+    waiting --> working: you answered
+    working --> error: the run failed
+    working --> happy: the run finished
+    happy --> idle: settles back after 3.2s
+    error --> working: the next run starts
+    idle --> sleeping: agent and pointer both quiet for 90s
+    sleeping --> idle: any activity, or a poke
+```
+
 | State | When |
 | --- | --- |
 | **idle** | Nothing to do — breathes, blinks now and then |
