@@ -114,9 +114,6 @@ stateDiagram-v2
 | **happy** | A run just finished; settles back to idle after a few seconds |
 | **sleeping** | Dozes when the agent is idle **and** your pointer has stopped moving. Any activity, or a poke, wakes it. |
 
-That last one takes two clocks on purpose: an agent with nothing to do is not
-the same thing as a desk with nobody at it.
-
 ## Skins
 
 <p align="center">
@@ -135,7 +132,7 @@ has all six states at three frames each.
 | **Jellyfish** | <img src="docs/media/loop-jellyfish.gif" width="120" alt="jellyfish"> |
 
 > Idle is 2.4 seconds of stillness and then a very short blink. I tried giving the
-> three frames equal time and the pet read as twitching rather than breathing.
+> three frames equal time and it did not look right.
 
 ### Every skin, all six states
 

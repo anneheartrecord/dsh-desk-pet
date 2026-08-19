@@ -44,13 +44,13 @@ dsh web
 
 装完宠物就浮在桌面上了，DSH 页面本身不会被塞任何东西。
 
-**从旧版本升级得带 `@latest`。** 这个我自己踩过：
+从旧版本升级得带 `@latest`：
 
 ```bash
 dsh plugin --profile web add deepseek-desk-pet@latest
 ```
 
-不带的话写进去的是 `^0.x` 范围，而 caret 作用在 `0.x` 上会锁住次版本号，`^0.1.0` 永远不接受 `0.2.0`。裸命令给你报一句 Already up to date，旧版本原地不动，我当时以为是自己发版发错了。
+不带的话写进去的是 `^0.x` 范围，而 caret 作用在 `0.x` 上会锁住次版本号，`^0.1.0` 永远不接受 `0.2.0`。裸命令会报一句 Already up to date，旧版本原地不动。
 
 不想装 DSH、只想看宠物：克隆下来跑 `./bin/dsh-desk-pet`。
 
@@ -60,9 +60,8 @@ dsh plugin --profile web add deepseek-desk-pet@latest
 dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
 ```
 
-> 包名叫 **deepseek-desk-pet**，仓库叫 **dsh-desk-pet**。不是我手抖，是 npm 认为
-> `dsh-desk-pet` 和一个跟我毫无关系的 `dsh-deskpet` 太像，直接拒了。它比较的时候
-> 会把连字符去掉，两个名字归一化之后一模一样。
+> 包名叫 **deepseek-desk-pet**，仓库叫 **dsh-desk-pet**。npm 认为 `dsh-desk-pet`
+> 和一个无关的 `dsh-deskpet` 太像，拒绝发布，所以两个名字不一致。
 
 **零依赖。** 装它不用先装别的东西，不用编译，也不需要 ffmpeg。跑的是系统自带的 python。
 
@@ -109,7 +108,6 @@ stateDiagram-v2
 | **开心** | 刚跑完一轮，3.2 秒后自己回到空闲 |
 | **睡着** | agent 闲着**且**你的鼠标也不动了才打盹，一有动静或者你戳它就醒 |
 
-最后一条我特意用了两个时钟。agent 没事干，和桌前没人，不是一回事。
 
 ## 皮肤
 
@@ -127,7 +125,7 @@ stateDiagram-v2
 | **鹦鹉螺** | <img src="docs/media/loop-nautilus.gif" width="120" alt="nautilus"> |
 | **水母** | <img src="docs/media/loop-jellyfish.gif" width="120" alt="jellyfish"> |
 
-> 空闲是 2.4 秒静止，然后一次很短的眨眼。三帧均分我试过，那样看起来是在抽搐不是在呼吸。
+> 空闲是 2.4 秒静止，然后一次很短的眨眼。三帧均分我试过，效果不好。
 
 ### 每套皮肤的六个状态
 
