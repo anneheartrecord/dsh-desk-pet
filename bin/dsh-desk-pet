@@ -85,7 +85,8 @@ if __name__ == "__main__":
     # launch path, which refuses to start when a pet is already running (the
     # usual case) or detaches and reports success without installing anything.
     inspects = any(
-        arg.split("=", 1)[0] in ("--probe", "--inventory", "--install-skin", "-h", "--help")
+        arg.split("=", 1)[0] in ("--probe", "--inventory", "--install-skin",
+                                "--skin-sheet", "-h", "--help")
         for arg in argv)
 
     if not foreground and not inspects:

@@ -27,7 +27,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import bridge, nswindow, packs, prefs as prefs_store, sessions, skininstall, updates
+from . import bridge, nswindow, packs, prefs as prefs_store, sessions, sheets, skininstall, updates
 from .anim import motion_for
 from .mapper import AgentActivity
 from .observer import observe_activity
@@ -700,6 +700,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="install a generated skin under this id and exit")
     parser.add_argument("--from", dest="frames_from", metavar="DIR",
                         help="directory of generated frames, used with --install-skin")
+    parser.add_argument("--skin-sheet", metavar="ID",
+                        help="write a six-state preview image for this skin and exit")
+    parser.add_argument("--out", metavar="PATH",
+                        help="where --skin-sheet writes (default ./skin-<id>.png)")
     args = parser.parse_args(argv)
 
     if args.inventory:
@@ -738,6 +742,18 @@ def main(argv: list[str] | None = None) -> int:
         prefs_store.save(saved)
         print(f"installed skin {args.install_skin!r} -> {installed}")
         print("it is now the active skin; restart the pet to see it")
+        return 0
+
+    if args.skin_sheet:
+        # Also a one-shot, and also before the instance guard: someone who just
+        # made a skin wants the picture while the pet is still running.
+        out = Path(args.out) if args.out else Path(f"skin-{args.skin_sheet}.png")
+        try:
+            written = sheets.build_strip(args.skin_sheet, out)
+        except sheets.SheetError as exc:
+            print(f"could not draw the sheet: {exc}", file=sys.stderr)
+            return 1
+        print(f"wrote {written}")
         return 0
 
     if args.probe:
