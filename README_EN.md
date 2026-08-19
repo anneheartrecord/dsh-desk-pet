@@ -234,7 +234,7 @@ a session panel that travels with the pet as a child window.
 ## Development
 
 ```bash
-/usr/bin/python3 -m unittest discover -t . -s tests -v     # 148 tests, no display needed
+/usr/bin/python3 -m unittest discover -t . -s tests -v     # 267 tests, no display needed
 DSH_PET_ART_CHECK=1 /usr/bin/python3 -m unittest discover -t . -s tests   # + the pixel gate
 node tests/plugin_smoke.mjs                                 # the plugin's HTTP routes
 ```
@@ -246,6 +246,7 @@ node tests/plugin_smoke.mjs                                 # the plugin's HTTP 
 ./scripts/build_frames.py       # key, align, scale; writes both frame sets
 ./scripts/check_frames.py       # per-pixel inspection
 ./scripts/contact_sheet.py      # one reviewable image, no window required
+./scripts/media_sheets.py       # the preview strips and loops the READMEs show
 ```
 
 New art goes on a **magenta `#FF00FF` background**, and props must not use
