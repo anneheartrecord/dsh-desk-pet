@@ -42,13 +42,13 @@ class InventoryTests(unittest.TestCase):
             self.assertGreaterEqual(states["idle"], 2, f"{skin_id}/idle cannot animate")
 
     def test_desktop_frames_are_gif_because_tk85_reads_nothing_else(self) -> None:
-        for skin_id in packs.available_skins():
+        for skin_id in packs.shipped_skins():
             for state in CORE_STATES:
                 for path in packs.frames_for(skin_id, state):
                     self.assertEqual(path.suffix, ".gif", f"{path} is unreadable by Tk 8.5")
 
     def test_web_frames_are_png_with_matching_coverage(self) -> None:
-        for skin_id in packs.available_skins():
+        for skin_id in packs.shipped_skins():
             for state in CORE_STATES:
                 desktop = packs.frames_for(skin_id, state)
                 web = packs.frames_for(skin_id, state, web=True)
@@ -105,7 +105,7 @@ class FallbackTests(unittest.TestCase):
 class ManifestTests(unittest.TestCase):
     def test_manifest_records_every_built_skin(self) -> None:
         skins = packs.manifest().get("skins", {})
-        for skin_id in packs.available_skins():
+        for skin_id in packs.shipped_skins():
             self.assertIn(skin_id, skins, f"{skin_id} built but not in manifest.json")
 
     def test_frame_size_is_sane(self) -> None:

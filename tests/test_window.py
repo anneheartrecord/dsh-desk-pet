@@ -75,9 +75,9 @@ class PaintingTests(unittest.TestCase):
     def test_next_skin_cycles_and_returns(self) -> None:
         first = self.app.runtime.skin_id
         seen = {first}
-        # Sized from the catalog `next_skin` actually walks, which now includes
-        # any skin the user installed — `available_skins` enumerates the shipped
-        # tree only, so it would come up short by exactly those.
+        # Sized from the catalog `next_skin` actually walks, which includes any
+        # skin the user installed. `shipped_skins` is the built tree alone, so
+        # it would come up short by exactly those.
         for _ in range(len(list_skins())):
             self.app.next_skin()
             seen.add(self.app.runtime.skin_id)
@@ -108,7 +108,9 @@ class HitTestTests(unittest.TestCase):
             self.assertFalse(self.app.is_on_pet(x, y), f"({x},{y}) counted as the pet")
 
     def test_every_skin_has_a_subject_box(self) -> None:
-        for skin in packs.available_skins():
+        """Shipped art only: a hand-made user skin has no manifest to read."""
+
+        for skin in packs.shipped_skins():
             self.assertIsNotNone(packs.subject_box(skin), f"{skin} has no subject box")
 
 

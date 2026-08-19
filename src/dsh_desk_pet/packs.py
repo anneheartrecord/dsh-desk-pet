@@ -256,7 +256,17 @@ def available_skins() -> tuple[str, ...]:
                  if frames_for(skin.id, "idle", web=True))
 
 
-def _shipped_skin_ids() -> tuple[str, ...]:
+def shipped_skins() -> tuple[str, ...]:
+    """Only the skins built into this checkout.
+
+    The counterpart to `available_skins`, which deliberately spans both roots
+    so `--probe` agrees with the skin submenu. Anything asserting on build
+    output — frame formats, manifest completeness — must use this instead:
+    `available_skins` picks up whatever the developer has installed in their
+    own home, so a machine that used the DIY skin feature would fail the suite
+    for skins the repository never built.
+    """
+
     if not SKIN_ROOT.is_dir():
         return ()
     return tuple(sorted(p.name for p in SKIN_ROOT.iterdir() if p.is_dir()))
