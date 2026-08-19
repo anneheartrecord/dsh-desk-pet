@@ -13,9 +13,10 @@ import os
 import signal
 import threading
 import unittest
+from unittest import mock
 from pathlib import Path
 
-from dsh_desk_pet import nswindow, packs
+from dsh_desk_pet import app as app_mod, nswindow, packs
 from dsh_desk_pet.app import DeskPetApp
 from dsh_desk_pet.mapper import AgentActivity
 from dsh_desk_pet.runtime import PetRuntime
@@ -134,11 +135,11 @@ class MenuModelTests(unittest.TestCase):
         self.assertEqual(
             [e.kind for e in model],
             ["item", "separator", "item", "submenu", "separator",
-             "item", "item", "separator", "item", "separator", "item"],
+             "item", "item", "separator", "item", "item", "separator", "item"],
         )
         self.assertEqual(
             [e.action for e in model if e.kind == "item"],
-            ["dnd", "dashboard", "menu_bar", "dock", "updates", "quit"],
+            ["dnd", "dashboard", "menu_bar", "dock", "homepage", "updates", "quit"],
         )
         self.assertEqual(sum(1 for e in model if e.kind == "separator"), 4)
 
@@ -187,7 +188,7 @@ class MenuModelTests(unittest.TestCase):
         self.app.prefs.show_menu_bar = False
         self.app.prefs.show_dock = False
         model = self.app.menu_model()
-        self.assertEqual(len(model), 11)
+        self.assertEqual(len(model), 12)
         self.assertTrue(all(e.enabled for e in model))
 
     def test_dashboard_entry_names_what_the_click_will_do(self) -> None:
@@ -229,6 +230,24 @@ class MenuActionTests(unittest.TestCase):
         for action in actions:
             with self.subTest(action=action):
                 self.assertTrue(self.app.can_handle_menu(action), f"no handler for {action}")
+
+    def test_the_github_entry_opens_the_repository(self) -> None:
+        """The only path from a running pet back to where it came from.
+
+        Installed with `dsh plugin add`, a user never passes the repository, so
+        an entry that silently fails to open it would leave that gap in place
+        while looking like it had been closed.
+        """
+
+        seen = []
+        with mock.patch.object(app_mod.subprocess, "Popen", lambda cmd, **kw: seen.append(cmd)):
+            self.app.on_menu_action("homepage")
+        self.assertEqual(len(seen), 1, "nothing was launched")
+        cmd = seen[0]
+        self.assertEqual(cmd[0], "/usr/bin/open", "must not go through a shell")
+        self.assertEqual(cmd[1], app_mod.HOMEPAGE)
+        self.assertTrue(cmd[1].startswith("https://github.com/anneheartrecord/dsh-desk-pet"),
+                        f"points somewhere else: {cmd[1]}")
 
     def test_sleep_action_toggles_the_mode_both_ways(self) -> None:
         self.app.on_menu_action("dnd")

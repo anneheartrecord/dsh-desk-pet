@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import os
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -28,6 +29,24 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import bridge, nswindow, packs, prefs as prefs_store, sessions, sheets, skininstall, updates
+
+
+HOMEPAGE = "https://github.com/anneheartrecord/dsh-desk-pet"
+
+
+def open_homepage(url: str = HOMEPAGE) -> None:
+    """Hand the project page to the browser.
+
+    Installed through `dsh plugin add`, a user never passes the repository at
+    all: the pet appears on the desktop and there is no path from it back to
+    where it came from. This is that path.
+
+    Fixed argv, no shell, and the URL is a constant rather than anything read
+    off disk, so nothing here can be steered by a file the pet observes.
+    """
+
+    subprocess.Popen(["/usr/bin/open", url],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 from .anim import motion_for
 from .mapper import AgentActivity
 from .observer import observe_activity
@@ -246,6 +265,7 @@ class DeskPetApp:
             MenuEntry(kind="item", title="Show in Dock", action="dock",
                       checked=self.prefs.show_dock),
             MenuEntry(kind="separator"),
+            MenuEntry(kind="item", title="Project on GitHub", action="homepage"),
             MenuEntry(kind="item", title=self.update_label, action="updates"),
             MenuEntry(kind="separator"),
             MenuEntry(kind="item", title="Quit", action="quit"),
@@ -261,7 +281,7 @@ class DeskPetApp:
 
         if action.startswith("skin:"):
             return is_known_skin(action[len("skin:"):])
-        return action in ("dnd", "dashboard", "menu_bar", "dock", "updates", "quit")
+        return action in ("dnd", "dashboard", "menu_bar", "dock", "homepage", "updates", "quit")
 
     def on_menu_action(self, action: str) -> None:
         """Apply a picked menu entry.
@@ -295,6 +315,9 @@ class DeskPetApp:
                 setattr(self.prefs, field, not getattr(self.prefs, field))
                 self._save_prefs()
                 self._apply_visibility()
+                return
+            if action == "homepage":
+                open_homepage()
                 return
             if action == "updates":
                 self.check_for_updates()

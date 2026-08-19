@@ -77,7 +77,7 @@ on the Python that ships with macOS.
 | **Drag** | Grab it anywhere. Where you leave it is where it starts next time. |
 | **Click** | Opens the session list — which DSH sessions exist, which is live, what it is doing. Click again to close. |
 | **Sleep (Do Not Disturb)** | Quiets the pet until you turn it off. The agent keeps working; the pet stops reacting. Petting it still gets a bounce. |
-| **Right-click** | Opens the menu: quiet mode, the session list, skins, where the pet shows up, updates, quit. |
+| **Right-click** | Opens the menu: quiet mode, the session list, skins, where the pet shows up, the project page, updates, quit. |
 | **Stop** | `./bin/dsh-desk-pet --stop`, or stop `dsh web`. |
 
 It starts in the background and detaches from your terminal, so you can close
