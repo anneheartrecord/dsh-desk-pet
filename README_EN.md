@@ -180,6 +180,16 @@ away before paying for seventeen more, and once after the second, to check the
 character survived being redrawn. If a run half-fails it tells you which poses
 are missing and keeps the ones you already paid for.
 
+**And then you can show it to someone.** One command draws the six states as a
+single image:
+
+```bash
+./bin/dsh-desk-pet --skin-sheet <your-skin-id>
+```
+
+Submissions welcome in the [skin gallery](SKINS.md) — the preview image is the
+whole contribution; your frames stay on your machine.
+
 ## Options
 
 ```bash

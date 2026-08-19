@@ -24,7 +24,7 @@
 
 **一、生成预览图**（一条命令，不用 clone 这个仓库）
 
-启动器在插件包里，不在 PATH 上。装完插件之后：
+启动器在插件包里，不在 PATH 上。**需要 0.3.0 或更新**——旧版本没有这个参数，升级用 `dsh plugin --profile web add deepseek-desk-pet@latest`。
 
 ```bash
 # 作为 DSH 插件装的（web profile；换成你实际用的 profile 名）
@@ -101,7 +101,7 @@ Nothing is sent anywhere by us.
 
 **1. Generate the preview** — one command, no need to clone this repo:
 
-The launcher lives inside the installed package, not on your PATH:
+The launcher lives inside the installed package, not on your PATH, and this flag needs **0.3.0 or newer** — upgrade with `dsh plugin --profile web add deepseek-desk-pet@latest`.
 
 ```bash
 ~/.dsh/profiles/web/node_modules/deepseek-desk-pet/bin/dsh-desk-pet \
