@@ -1,12 +1,18 @@
 # DSH Desk Pet
 
+<p align="center"><a href="README.md">English</a> · <b>中文</b></p>
+
 <p align="center">
-  <img src="docs/media/idle.gif" width="180" alt="会呼吸、会眨眼的 DeepSeek 鲸">
+  <b>一只能看出 agent 在干什么的桌宠。<br>
+  它可以是你自己的猫。</b>
 </p>
 
 <p align="center">
-  <b>一只能看出 agent 在干什么的桌宠。</b><br>
-  它浮在所有窗口之上（包括全屏），跟着 DSH 干活、等你、跑完、报错换表情。
+  <img src="docs/media/diy-skin.png" width="820" alt="一张猫的照片变成六个状态的桌宠">
+</p>
+<p align="center">
+  <sub>进去一张照片，出来六个状态——空闲、干活、等你、报错、开心、睡着。<br>
+  用你自己的画图工具、你自己的额度生成，我们不往任何地方传东西。</sub>
 </p>
 
 <p align="center">
@@ -18,13 +24,12 @@
 </p>
 
 <p align="center">
-  <img src="docs/media/states.png" width="720" alt="空闲、干活、等你、报错、开心、睡着">
+  <img src="docs/media/floats-above.png" width="820" alt="桌宠浮在一个全屏编辑器之上">
 </p>
 <p align="center">
-  <sub>空闲 · 干活 · 等你 · 报错 · 开心 · 睡着</sub>
+  <sub>一个真的 macOS 窗口，不是塞进 DSH 页面里的挂件。它盖在你正在用的一切之上，<br>
+  全屏 Space 也盖得住，并且不用你告诉它，自己跟着 agent 换表情。</sub>
 </p>
-
-<p align="center"><a href="README.md">English</a></p>
 
 ---
 
@@ -36,6 +41,14 @@
 dsh plugin --profile web add deepseek-desk-pet
 dsh web
 ```
+
+**从旧版本升级要带 `@latest`：**
+
+```bash
+dsh plugin --profile web add deepseek-desk-pet@latest
+```
+
+不带的话写进去的是 `^0.x` 范围，而 caret 作用在 `0.x` 上会锁住次版本号，所以 `^0.1.0` 永远不接受 `0.2.0`，裸命令会报「Already up to date」然后把旧版本留在原地。
 
 宠物会浮在桌面上，盖在你正在用的任何窗口之上。DSH 页面本身不会被塞任何东西。
 
@@ -66,6 +79,10 @@ dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
 它以后台进程启动、脱离终端，所以启动它的那个窗口可以直接关掉。
 
 ## 状态
+
+<p align="center">
+  <img src="docs/media/states.png" width="720" alt="空闲、干活、等你、报错、开心、睡着">
+</p>
 
 跟着本地 DSH 自动变，不用管。
 
