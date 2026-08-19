@@ -4,6 +4,9 @@
   "private": false,
   "type": "module",
   "description": "Always-on-top DeepSeek Harness desk pet with a native menu and DIY skins. Shows what your agent is doing: working, waiting, finished, failed. Five skins, or make your own from one image. No dependencies.",
+  "author": "anneheartrecord (https://github.com/anneheartrecord)",
+  "homepage": "https://github.com/anneheartrecord/dsh-desk-pet#readme",
+  "bugs": "https://github.com/anneheartrecord/dsh-desk-pet/issues",
   "license": "MIT",
   "repository": {
     "type": "git",
