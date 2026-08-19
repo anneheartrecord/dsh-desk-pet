@@ -34,7 +34,7 @@
     "cordis.patch.yml",
     "docs/media",
     "README.md",
-    "README.zh-CN.md",
+    "README_EN.md",
     "LICENSE"
   ],
   "dsh": {
