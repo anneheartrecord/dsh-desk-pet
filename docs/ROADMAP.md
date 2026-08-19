@@ -12,6 +12,13 @@ own tool and credentials, installed outside the package so an upgrade cannot
 delete it. The frame pipeline is pure standard library — no ffmpeg — which is
 what let the install path exist on a user's machine at all.
 
+## Shipped in 0.3.0
+
+`--skin-sheet <id>` draws a skin's six states as one image, so a skin generated
+from someone's photo can leave the machine that generated it. Before this the
+only way to show one was a screen recording. A community gallery collects them;
+the preview image is the whole submission, so nobody uploads frames.
+
 ## Still open
 
 ### Settings window

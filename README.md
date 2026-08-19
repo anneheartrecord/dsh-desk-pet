@@ -4,7 +4,7 @@
 
 <p align="center">
   <b>一只跟着你的 agent 换表情的桌宠。<br>
-  它可以长成你自己的猫。</b>
+  换成你自己的猫也行。</b>
 </p>
 
 <p align="center">
@@ -64,7 +64,7 @@ dsh plugin --profile web add github:anneheartrecord/dsh-desk-pet#main
 > `dsh-desk-pet` 和一个跟我毫无关系的 `dsh-deskpet` 太像，直接拒了。它比较的时候
 > 会把连字符去掉，两个名字归一化之后一模一样。
 
-**零依赖。** 跑系统自带的 `/usr/bin/python3`，靠 `ctypes` 直接调 AppKit。不装东西、不用编译，连 `ffmpeg` 都不要，解码、抠图、缩放全是标准库写的。
+**零依赖。** 装它不用先装别的东西，不用编译，也不需要 ffmpeg。跑的是系统自带的 python。
 
 ## 使用
 
@@ -127,8 +127,7 @@ stateDiagram-v2
 | **鹦鹉螺** | <img src="docs/media/loop-nautilus.gif" width="120" alt="nautilus"> |
 | **水母** | <img src="docs/media/loop-jellyfish.gif" width="120" alt="jellyfish"> |
 
-> 动图是按 `manifest.json` 里的真实时间轴播的：空闲是 2.4 秒静止，然后一次几十毫秒的眨眼。
-> 三帧均分我试过，那样看起来是在抽搐，不是在呼吸。
+> 空闲是 2.4 秒静止，然后一次很短的眨眼。三帧均分我试过，那样看起来是在抽搐不是在呼吸。
 
 ### 每套皮肤的六个状态
 
@@ -163,7 +162,7 @@ stateDiagram-v2
 
 把一张图交给你的 agent，让它做一套桌宠皮肤。插件里带了个 skill，负责把这张图扩写成一套皮肤要的十八个姿势，六个状态每个三帧。生图是你自己的工具在跑，烧的是你自己的额度，我这边不往任何地方发东西。做好的皮肤落在 `~/.dsh-desk-pet/skins/`，在安装包外面，所以升级插件不会把它删掉。
 
-skill 中途会停两次。第一次在基准姿势之后，让你在多花十七张之前先看看这个角色对不对；第二次在第二帧之后，确认重画一次之后还是同一个角色。这两次不是我谨慎，是文生图跨次调用锁不住身份，你的工具要是不支持拿上一次的结果当参考图，十八张会是十八个不同的角色，而且每一张单独看都挑不出毛病。半路失败会告诉你缺哪几个，已经花钱生出来的那些留着。
+十八张图烧的是真金白银，所以 skill 中途会停两次让你确认：第一张画出来先看角色对不对，第二张画出来再确认还是同一个角色。半路失败会告诉你缺哪几个，已经生出来的那些留着。
 
 做好之后可以拿出来给人看。一条命令把六个状态拼成一张图：
 
@@ -185,63 +184,16 @@ skill 中途会停两次。第一次在基准姿势之后，让你在多花十�
 ./bin/dsh-desk-pet --inventory      # 每套皮肤每个状态有几帧
 ```
 
-## 原理
-
-它盯着 `~/.dsh` 里的进程、会话活动和一个可选的提示文件，把看到的东西映射成六个状态。想手动驱动的话：
-
-```bash
-echo '{"kind":"working"}' > ~/.dsh/pet-activity.json
-rm ~/.dsh/pet-activity.json          # 交还给自动检测
-```
-
-它把看到的写进 `~/.dsh-desk-pet/state.json`。第二次启动靠这个文件判断是不是已经有一只在跑，`--stop` 也靠它找进程。
-
-页面里曾经还有一只镜像宠物，我后来整个删了。一个屏幕上两只宠物本来就像 bug，而且出问题的一直是那只镜像。真正值得留的是浮在所有窗口之上的这个窗口。
-
-### 为什么是 AppKit 不是 Tk
-
-macOS 自带的 Tcl/Tk 是 2010 年发布的 8.5.9，在 macOS 26 上它的绘制路径已经到不了屏幕。窗口能建出来，画布自报已映射、可见、尺寸正确、图片在正确的坐标上，屏幕上是一个空的灰方块。
-
-我一开始完全不信是 Tk 的问题，觉得肯定是自己哪里写错了。换透明、换无边框、换回不透明、换 MacWindowStyle，一样。两天就这么没了。
-
-最后改成用 `ctypes` 直接建在 AppKit 上。代码是多了不少，但白拿了三件 Tk 根本给不了的东西：真 alpha，不再是 GIF 那种一位遮罩；能跨全屏 Space 的窗口层级；以及作为子窗口跟着宠物一起搬的会话面板。
-
-## 开发
-
-```bash
-/usr/bin/python3 -m unittest discover -t . -s tests -v     # 267 个测试，不需要显示器
-DSH_PET_ART_CHECK=1 /usr/bin/python3 -m unittest discover -t . -s tests   # 加上逐像素素材闸
-node tests/plugin_smoke.mjs                                 # 插件那一侧
-```
-
-### 素材流水线
-
-```bash
-./scripts/generate_frames.py    # 补齐缺的姿势
-./scripts/build_frames.py       # 抠底、对齐、缩放
-./scripts/check_frames.py       # 逐像素体检
-./scripts/contact_sheet.py      # 拼一张总览图，不开窗也能看
-./scripts/media_sheets.py       # 出 README 用的预览图和动图
-```
-
-新素材的背景一律用品红 `#FF00FF`，装饰也不能用品红。底色必须是画面里绝不出现的颜色。第一批我生在粉彩底上，水母那套是薄荷绿，和角色自己的颜色太近，抠图阈值怎么调都会误伤。那批水母的眼睛就是这么被抠没的，而且当时 87 个测试全绿，因为没有一个测试在看像素。
-
-`generate_frames` 从不凭空重画角色，每次请求都是拿一张已有的图做 image-to-image。状态的第一帧参考本套皮肤的 idle 姿势，第二帧参考它自己的第一帧，因为循环要的是同一个姿势差一瞬间，不是两个不同的姿势。
-
-`check_frames` 是唯一会看像素的测试。其余测试只能比文件名，某套皮肤曾经带着一脸窟窿通过了全部测试。
-
-### 自定义皮肤
-
-皮肤就是一个装帧的目录。只要 `assets/web/<id>/<状态>/*.png` 存在，它自动进换肤循环，不用改代码。
-
 ## 已知限制
 
-- 窗口是个矩形，所以点在宠物周围透明边距上的时候不会穿透到后面去。逐像素穿透我写好了也测了，就是还没接上 AppKit 那一侧。
+- 宠物四周有一圈透明边距，点在那上面不会穿透到后面的窗口。
 - 这一版没有设置窗口，也没有贴边的 mini 模式。
 - 生成皮肤的时候这边不显示进度，那十八张图期间你只能看自己 agent 的输出。
-- 只支持 macOS。渲染层是 AppKit，Windows 和 Linux 我没有机器测，短期也不打算做。
+- 只支持 macOS。Windows 和 Linux 我没有机器测，短期也不打算做。
 
-接下来做什么、以及明确不做什么，都在 [docs/ROADMAP.md](docs/ROADMAP.md)。
+它内部怎么跑的、以及我当时选错过哪几个地方，写在 [docs/INTERNALS.zh-CN.md](docs/INTERNALS.zh-CN.md)。
+
+后面想做什么、什么不打算做，写在 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 许可
 
