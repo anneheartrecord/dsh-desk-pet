@@ -3,7 +3,7 @@
 <p align="center"><b>English</b> · <a href="README.md">简体中文</a></p>
 
 <p align="center">
-  <b>A desk pet that shows you what your DSH agent is doing.<br>
+  <b>A macOS desk pet that shows you what your DSH agent is doing.<br>
   It can be your own cat.</b>
 </p>
 
@@ -16,6 +16,7 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/macOS-only-000000.svg?logo=apple&logoColor=white" alt="macOS only">
   <a href="https://www.npmjs.com/package/deepseek-desk-pet"><img src="https://img.shields.io/npm/v/deepseek-desk-pet.svg?color=cb3837&label=npm" alt="npm"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/python-system%20only-3776AB.svg" alt="System Python">

@@ -3,7 +3,7 @@
 <p align="center"><a href="README_EN.md">English</a> · <b>简体中文</b></p>
 
 <p align="center">
-  <b>一只跟着你的 agent 换表情的桌宠。<br>
+  <b>一只跟着你的 agent 换表情的 macOS 桌宠。<br>
   换成你自己的猫也行。</b>
 </p>
 
@@ -16,6 +16,7 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/macOS-only-000000.svg?logo=apple&logoColor=white" alt="macOS only">
   <a href="https://www.npmjs.com/package/deepseek-desk-pet"><img src="https://img.shields.io/npm/v/deepseek-desk-pet.svg?color=cb3837&label=npm" alt="npm"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/python-系统自带-3776AB.svg" alt="System Python">
